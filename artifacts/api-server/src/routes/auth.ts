@@ -83,6 +83,23 @@ router.get("/auth/me", requireAuth, async (req: AuthRequest, res): Promise<void>
   res.json(formatUser(user));
 });
 
+router.patch("/auth/me/password", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !newPassword) {
+    res.status(400).json({ error: "Current and new password are required" }); return;
+  }
+  if (newPassword.length < 8) {
+    res.status(400).json({ error: "New password must be at least 8 characters" }); return;
+  }
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.userId!));
+  if (!user) { res.status(404).json({ error: "User not found" }); return; }
+  const valid = await bcrypt.compare(currentPassword, user.passwordHash);
+  if (!valid) { res.status(401).json({ error: "Current password is incorrect" }); return; }
+  const passwordHash = await bcrypt.hash(newPassword, 10);
+  await db.update(usersTable).set({ passwordHash }).where(eq(usersTable.id, req.userId!));
+  res.json({ message: "Password updated successfully" });
+});
+
 router.patch("/auth/me/update", requireAuth, async (req: AuthRequest, res): Promise<void> => {
   const { name, phone, neighbourhood } = req.body;
   const update: Record<string, unknown> = {};

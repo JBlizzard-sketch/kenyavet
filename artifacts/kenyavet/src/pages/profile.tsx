@@ -2,7 +2,7 @@ import { useState } from "react";
 import AppLayout from "@/components/layout/AppLayout";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
-import { User, Phone, MapPin, Mail, Shield, Save, CheckCircle } from "lucide-react";
+import { User, Phone, MapPin, Mail, Shield, Save, CheckCircle, Lock, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,6 +20,13 @@ export default function Profile() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
+
+  const [pwForm, setPwForm] = useState({ currentPassword: "", newPassword: "", confirmPassword: "" });
+  const [pwSaving, setPwSaving] = useState(false);
+  const [pwSaved, setPwSaved] = useState(false);
+  const [pwError, setPwError] = useState("");
+  const [showCurrent, setShowCurrent] = useState(false);
+  const [showNew, setShowNew] = useState(false);
 
   function set(k: string, v: string) {
     setForm(f => ({ ...f, [k]: v }));
@@ -41,23 +48,48 @@ export default function Profile() {
       }
       setSaved(true);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Failed to save changes";
-      setError(msg);
+      setError(err instanceof Error ? err.message : "Failed to save changes");
     } finally {
       setSaving(false);
     }
   }
 
+  async function handlePasswordChange(e: React.FormEvent) {
+    e.preventDefault();
+    setPwError("");
+    setPwSaved(false);
+    if (pwForm.newPassword !== pwForm.confirmPassword) {
+      setPwError("New passwords do not match"); return;
+    }
+    if (pwForm.newPassword.length < 8) {
+      setPwError("New password must be at least 8 characters"); return;
+    }
+    setPwSaving(true);
+    try {
+      await apiFetch("/auth/me/password", {
+        method: "PATCH",
+        token,
+        body: { currentPassword: pwForm.currentPassword, newPassword: pwForm.newPassword },
+      });
+      setPwSaved(true);
+      setPwForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
+    } catch (err: unknown) {
+      setPwError(err instanceof Error ? err.message : "Failed to update password");
+    } finally {
+      setPwSaving(false);
+    }
+  }
+
   return (
     <AppLayout>
-      <div className="p-6 max-w-2xl mx-auto">
-        <div className="mb-6">
+      <div className="p-6 max-w-2xl mx-auto space-y-6">
+        <div className="mb-2">
           <h1 className="text-2xl font-serif font-bold text-foreground">My Profile</h1>
-          <p className="text-muted-foreground text-sm mt-0.5">Manage your account details</p>
+          <p className="text-muted-foreground text-sm mt-0.5">Manage your account details and security</p>
         </div>
 
-        {/* Avatar */}
-        <div className="bg-card rounded-xl border border-card-border p-6 mb-5">
+        {/* Avatar card */}
+        <div className="bg-card rounded-xl border border-card-border p-6">
           <div className="flex items-center gap-4">
             <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
               <span className="text-primary text-2xl font-bold">
@@ -75,7 +107,7 @@ export default function Profile() {
           </div>
         </div>
 
-        {/* Edit form */}
+        {/* Personal info */}
         <div className="bg-card rounded-xl border border-card-border p-6">
           <h2 className="font-semibold text-foreground mb-5">Personal Information</h2>
 
@@ -136,12 +168,10 @@ export default function Profile() {
 
             <div className="pt-2 flex items-center gap-3">
               <Button type="submit" disabled={saving} className="gap-2">
-                {saving ? "Saving…" : <>
-                  <Save className="w-4 h-4" /> Save Changes
-                </>}
+                {saving ? "Saving…" : <><Save className="w-4 h-4" /> Save Changes</>}
               </Button>
               {saved && (
-                <span className="flex items-center gap-1.5 text-sm text-emerald-600">
+                <span className="text-sm text-emerald-600 flex items-center gap-1.5">
                   <CheckCircle className="w-4 h-4" /> Saved
                 </span>
               )}
@@ -149,23 +179,116 @@ export default function Profile() {
           </form>
         </div>
 
-        {/* Account info */}
-        <div className="bg-card rounded-xl border border-card-border p-6 mt-5">
-          <h2 className="font-semibold text-foreground mb-4">Account Details</h2>
-          <div className="space-y-2.5 text-sm">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Account type</span>
-              <span className="capitalize font-medium">{user?.role}</span>
+        {/* Change password */}
+        <div className="bg-card rounded-xl border border-card-border p-6">
+          <h2 className="font-semibold text-foreground mb-1 flex items-center gap-2">
+            <Lock className="w-4 h-4 text-muted-foreground" /> Change Password
+          </h2>
+          <p className="text-xs text-muted-foreground mb-5">Use a strong password of at least 8 characters</p>
+
+          {pwError && (
+            <div className="bg-red-50 text-red-700 text-sm px-4 py-2.5 rounded-lg border border-red-100 mb-4">
+              {pwError}
             </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Member since</span>
-              <span>{user?.createdAt ? new Date(user.createdAt).toLocaleDateString("en-KE", { day: "numeric", month: "long", year: "numeric" }) : "—"}</span>
+          )}
+          {pwSaved && (
+            <div className="bg-emerald-50 text-emerald-700 text-sm px-4 py-2.5 rounded-lg border border-emerald-100 mb-4 flex items-center gap-2">
+              <CheckCircle className="w-4 h-4" /> Password updated successfully
             </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Neighbourhood</span>
-              <span>{user?.neighbourhood || "Not set"}</span>
+          )}
+
+          <form onSubmit={handlePasswordChange} className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="currentPw">Current Password</Label>
+              <div className="relative">
+                <Input
+                  id="currentPw"
+                  type={showCurrent ? "text" : "password"}
+                  value={pwForm.currentPassword}
+                  onChange={e => setPwForm(f => ({ ...f, currentPassword: e.target.value }))}
+                  required
+                  className="pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowCurrent(v => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  {showCurrent ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
             </div>
-          </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="newPw">New Password</Label>
+              <div className="relative">
+                <Input
+                  id="newPw"
+                  type={showNew ? "text" : "password"}
+                  value={pwForm.newPassword}
+                  onChange={e => setPwForm(f => ({ ...f, newPassword: e.target.value }))}
+                  required
+                  minLength={8}
+                  className="pr-10"
+                  placeholder="At least 8 characters"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowNew(v => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  {showNew ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+              {pwForm.newPassword && (
+                <div className="flex items-center gap-1.5 mt-1">
+                  <div className="flex gap-0.5">
+                    {[...Array(4)].map((_, i) => (
+                      <div
+                        key={i}
+                        className={`h-1 w-6 rounded-full transition-colors ${
+                          pwForm.newPassword.length > i * 2 + 2
+                            ? pwForm.newPassword.length >= 12 ? "bg-emerald-500"
+                              : pwForm.newPassword.length >= 8 ? "bg-amber-500"
+                              : "bg-red-400"
+                            : "bg-muted"
+                        }`}
+                      />
+                    ))}
+                  </div>
+                  <span className="text-xs text-muted-foreground">
+                    {pwForm.newPassword.length < 8 ? "Too short" : pwForm.newPassword.length < 12 ? "Acceptable" : "Strong"}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="confirmPw">Confirm New Password</Label>
+              <Input
+                id="confirmPw"
+                type="password"
+                value={pwForm.confirmPassword}
+                onChange={e => setPwForm(f => ({ ...f, confirmPassword: e.target.value }))}
+                required
+                placeholder="Repeat new password"
+              />
+              {pwForm.confirmPassword && pwForm.newPassword !== pwForm.confirmPassword && (
+                <p className="text-xs text-red-500">Passwords do not match</p>
+              )}
+            </div>
+
+            <div className="pt-2">
+              <Button
+                type="submit"
+                variant="outline"
+                disabled={pwSaving || !pwForm.currentPassword || !pwForm.newPassword}
+                className="gap-2"
+              >
+                {pwSaving ? "Updating…" : <><Lock className="w-4 h-4" /> Update Password</>}
+              </Button>
+            </div>
+          </form>
         </div>
       </div>
     </AppLayout>

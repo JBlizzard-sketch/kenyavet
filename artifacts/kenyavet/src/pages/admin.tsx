@@ -6,11 +6,20 @@ import { apiFetch } from "@/lib/api";
 import { formatDate, formatKsh, getStatusColor, getStatusLabel, getTrustScoreBg } from "@/lib/utils";
 import {
   Users, ClipboardList, Shield, Search,
-  ChevronRight, X, Save, Bell, FileEdit, CheckCircle, Loader2
+  ChevronRight, X, Save, Bell, FileEdit, CheckCircle, Loader2, BarChart3, TrendingUp,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, Legend,
+} from "recharts";
+
+interface AnalyticsData {
+  months: { month: string; label: string; requests: number; completed: number; revenue: number }[];
+  packageBreakdown: { name: string; slug: string; total: number; completed: number }[];
+  totalRevenue: number;
+}
 
 interface AdminRequest {
   id: number;
@@ -251,6 +260,8 @@ export default function Admin() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [updatingId, setUpdatingId] = useState<number | null>(null);
   const [drawer, setDrawer] = useState<AdminRequest | null>(null);
+  const [activeTab, setActiveTab] = useState<"requests" | "analytics">("requests");
+  const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
 
   async function load() {
     try {
@@ -264,7 +275,15 @@ export default function Admin() {
     finally { setLoading(false); }
   }
 
+  async function loadAnalytics() {
+    try {
+      const data = await apiFetch<AnalyticsData>("/admin/analytics", { token });
+      setAnalytics(data);
+    } catch {}
+  }
+
   useEffect(() => { load(); }, [token]);
+  useEffect(() => { if (activeTab === "analytics") loadAnalytics(); }, [activeTab, token]);
 
   async function updateStatus(id: number, status: string) {
     setUpdatingId(id);
@@ -314,9 +333,27 @@ export default function Admin() {
       )}
 
       <div className="p-6 max-w-7xl mx-auto">
-        <div className="mb-6">
-          <h1 className="text-2xl font-serif font-bold text-foreground">Admin Panel</h1>
-          <p className="text-muted-foreground text-sm mt-0.5">Manage all vetting requests and operations</p>
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h1 className="text-2xl font-serif font-bold text-foreground">Admin Panel</h1>
+            <p className="text-muted-foreground text-sm mt-0.5">Manage all vetting requests and operations</p>
+          </div>
+          <div className="flex gap-2">
+            {(["requests", "analytics"] as const).map(tab => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors flex items-center gap-1.5 ${
+                  activeTab === tab
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-muted-foreground hover:bg-muted/80"
+                }`}
+              >
+                {tab === "requests" ? <ClipboardList className="w-3.5 h-3.5" /> : <BarChart3 className="w-3.5 h-3.5" />}
+                {tab === "requests" ? "Requests" : "Analytics"}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Stats */}
@@ -329,7 +366,96 @@ export default function Admin() {
           ))}
         </div>
 
-        {/* Filters */}
+        {/* Analytics tab */}
+        {activeTab === "analytics" && (
+          <div className="space-y-6 mb-8">
+            {!analytics ? (
+              <div className="py-16 text-center text-muted-foreground text-sm">Loading analytics…</div>
+            ) : (
+              <>
+                {/* Monthly chart */}
+                <div className="bg-card rounded-xl border border-card-border p-6">
+                  <h3 className="font-semibold text-foreground mb-1 flex items-center gap-2">
+                    <TrendingUp className="w-4 h-4 text-primary" /> Monthly Activity (Last 6 Months)
+                  </h3>
+                  <p className="text-xs text-muted-foreground mb-5">Requests submitted vs. completed</p>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <BarChart data={analytics.months} barSize={18} barGap={4}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
+                      <XAxis dataKey="label" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fontSize: 12 }} axisLine={false} tickLine={false} allowDecimals={false} />
+                      <Tooltip
+                        contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e5e7eb" }}
+                        formatter={(v: number, name: string) => [
+                          name === "revenue" ? `Ksh ${v.toLocaleString()}` : v,
+                          name === "requests" ? "Submitted" : name === "completed" ? "Completed" : "Revenue",
+                        ]}
+                      />
+                      <Legend formatter={v => v === "requests" ? "Submitted" : v === "completed" ? "Completed" : "Revenue"} />
+                      <Bar dataKey="requests" fill="#e0f2fe" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="completed" fill="#10b981" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* Revenue chart */}
+                <div className="bg-card rounded-xl border border-card-border p-6">
+                  <h3 className="font-semibold text-foreground mb-1 flex items-center gap-2">
+                    <BarChart3 className="w-4 h-4 text-primary" /> Monthly Revenue (Ksh)
+                  </h3>
+                  <p className="text-xs text-muted-foreground mb-5">
+                    Total revenue: <strong>{formatKsh(analytics.totalRevenue)}</strong>
+                  </p>
+                  <ResponsiveContainer width="100%" height={180}>
+                    <LineChart data={analytics.months}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
+                      <XAxis dataKey="label" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+                      <YAxis
+                        tick={{ fontSize: 11 }}
+                        axisLine={false}
+                        tickLine={false}
+                        tickFormatter={v => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}
+                      />
+                      <Tooltip
+                        contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e5e7eb" }}
+                        formatter={(v: number) => [`Ksh ${v.toLocaleString()}`, "Revenue"]}
+                      />
+                      <Line dataKey="revenue" stroke="#10b981" strokeWidth={2.5} dot={{ r: 4, fill: "#10b981" }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* Package breakdown */}
+                <div className="bg-card rounded-xl border border-card-border p-6">
+                  <h3 className="font-semibold text-foreground mb-5">Package Breakdown</h3>
+                  <div className="space-y-4">
+                    {analytics.packageBreakdown.map(pkg => {
+                      const max = Math.max(...analytics.packageBreakdown.map(p => p.total), 1);
+                      return (
+                        <div key={pkg.slug}>
+                          <div className="flex items-center justify-between text-sm mb-1.5">
+                            <span className="font-medium text-foreground">{pkg.name}</span>
+                            <span className="text-muted-foreground">{pkg.total} total · {pkg.completed} completed</span>
+                          </div>
+                          <div className="h-2.5 bg-muted rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-primary rounded-full transition-all"
+                              style={{ width: `${(pkg.total / max) * 100}%` }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Requests tab: filters + table */}
+        {activeTab === "requests" && (
+        <>
         <div className="flex flex-col sm:flex-row gap-3 mb-5">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -350,7 +476,6 @@ export default function Admin() {
           </Select>
         </div>
 
-        {/* Table */}
         <div className="bg-card rounded-xl border border-card-border overflow-hidden">
           {loading ? (
             <div className="py-16 text-center text-muted-foreground text-sm">Loading…</div>
@@ -441,6 +566,8 @@ export default function Admin() {
             </div>
           )}
         </div>
+        </>
+        )}
       </div>
     </AppLayout>
   );

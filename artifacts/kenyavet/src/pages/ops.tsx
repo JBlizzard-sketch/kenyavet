@@ -21,6 +21,17 @@ interface Step {
   completedAt: string | null;
 }
 
+interface RefContact {
+  id: number;
+  name: string;
+  phone: string;
+  relationship: string;
+  employerName: string;
+  yearsWorked: number | null;
+  callStatus: string;
+  callSummary: string | null;
+}
+
 interface OpsRequest {
   id: number;
   workerName: string;
@@ -42,6 +53,7 @@ interface OpsRequest {
   createdAt: string;
   updatedAt: string;
   steps: Step[];
+  references: RefContact[];
 }
 
 interface AdminRequest {
@@ -296,6 +308,50 @@ function OpsDrawer({
                 <p className="text-xs text-muted-foreground truncate">{detail.employerEmail}</p>
               </div>
             </div>
+
+            {/* Reference contacts */}
+            {detail.references && detail.references.length > 0 && (
+              <div>
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-1.5">
+                  <Phone className="w-3 h-3" /> Reference Contacts ({detail.references.length})
+                </h3>
+                <div className="space-y-2">
+                  {detail.references.map((ref, i) => (
+                    <div key={ref.id} className="rounded-xl border border-border bg-muted/30 p-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-foreground">{ref.name}</p>
+                          <p className="text-xs text-muted-foreground">{ref.relationship} · {ref.employerName}</p>
+                          {ref.yearsWorked && <p className="text-xs text-muted-foreground">{ref.yearsWorked} yr{ref.yearsWorked !== 1 ? "s" : ""} known</p>}
+                          {ref.callSummary && (
+                            <p className="text-xs text-foreground mt-1 bg-emerald-50 rounded px-2 py-1">{ref.callSummary}</p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${
+                            ref.callStatus === "completed" ? "bg-emerald-100 text-emerald-700" :
+                            ref.callStatus === "no_answer" ? "bg-amber-100 text-amber-700" :
+                            "bg-muted text-muted-foreground"
+                          }`}>{ref.callStatus === "pending" ? "Not called" : ref.callStatus.replace("_", " ")}</span>
+                          <a
+                            href={`tel:${ref.phone}`}
+                            className="flex items-center gap-1 text-xs bg-primary text-primary-foreground px-2.5 py-1 rounded-lg hover:bg-primary/90 transition-colors"
+                          >
+                            <Phone className="w-3 h-3" /> {ref.phone}
+                          </a>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {detail.references?.length === 0 && (
+              <div className="rounded-xl border border-dashed border-border p-3 text-xs text-muted-foreground text-center">
+                No reference contacts provided by the employer
+              </div>
+            )}
 
             {/* Steps */}
             <div>

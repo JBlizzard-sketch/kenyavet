@@ -4,7 +4,7 @@ import AppLayout from "@/components/layout/AppLayout";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import { formatKsh } from "@/lib/utils";
-import { ArrowLeft, CheckCircle, Clock } from "lucide-react";
+import { ArrowLeft, CheckCircle, Clock, Plus, Trash2, Phone, UserCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -22,7 +22,24 @@ interface Package {
   popular: boolean;
 }
 
+interface RefContact {
+  name: string;
+  phone: string;
+  relationship: string;
+  employerName: string;
+  yearsWorked: string;
+}
+
+const emptyRef = (): RefContact => ({ name: "", phone: "", relationship: "", employerName: "", yearsWorked: "" });
+
 const roles = ["Housekeeper", "Driver", "Nanny", "Cook", "Gardener", "Security Guard", "House Manager", "Other"];
+const relationships = ["Previous Employer", "Current Employer", "Colleague", "Neighbour", "Community Leader", "Other"];
+
+function refCountForPkg(slug: string) {
+  if (slug === "premium") return 3;
+  if (slug === "standard") return 2;
+  return 1;
+}
 
 export default function NewVettingRequest() {
   const [, navigate] = useLocation();
@@ -33,6 +50,7 @@ export default function NewVettingRequest() {
     workerName: "", workerRole: "", workerIdNumber: "", workerPhone: "",
     workerEmail: "", notes: "", packageId: "",
   });
+  const [refs, setRefs] = useState<RefContact[]>([emptyRef()]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -43,6 +61,7 @@ export default function NewVettingRequest() {
       if (standard) {
         setSelectedPkg(standard);
         setForm(f => ({ ...f, packageId: String(standard.id) }));
+        setRefs(Array.from({ length: refCountForPkg(standard.slug) }, emptyRef));
       }
     }).catch(() => {});
   }, []);
@@ -54,6 +73,16 @@ export default function NewVettingRequest() {
   function selectPackage(pkg: Package) {
     setSelectedPkg(pkg);
     set("packageId", String(pkg.id));
+    const needed = refCountForPkg(pkg.slug);
+    setRefs(prev => {
+      const next = [...prev];
+      while (next.length < needed) next.push(emptyRef());
+      return next.slice(0, needed);
+    });
+  }
+
+  function setRef(i: number, k: keyof RefContact, v: string) {
+    setRefs(prev => prev.map((r, idx) => idx === i ? { ...r, [k]: v } : r));
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -65,7 +94,7 @@ export default function NewVettingRequest() {
       const data = await apiFetch<{ request: { id: number } }>("/vetting-requests", {
         method: "POST",
         token,
-        body: JSON.stringify({
+        body: {
           workerName: form.workerName,
           workerRole: form.workerRole,
           workerIdNumber: form.workerIdNumber,
@@ -73,15 +102,35 @@ export default function NewVettingRequest() {
           workerEmail: form.workerEmail || null,
           notes: form.notes || null,
           packageId: Number(form.packageId),
-        }),
+        },
       });
-      navigate(`/vetting-requests/${data.request.id}`);
+      const requestId = data.request.id;
+
+      // Post reference contacts that have at least a name and phone
+      const validRefs = refs.filter(r => r.name.trim() && r.phone.trim());
+      for (const ref of validRefs) {
+        await apiFetch(`/vetting-requests/${requestId}/references`, {
+          method: "POST",
+          token,
+          body: {
+            name: ref.name.trim(),
+            phone: ref.phone.trim(),
+            relationship: ref.relationship || "Previous Employer",
+            employerName: ref.employerName.trim() || "Not specified",
+            yearsWorked: ref.yearsWorked ? Number(ref.yearsWorked) : null,
+          },
+        }).catch(() => {});
+      }
+
+      navigate(`/vetting-requests/${requestId}`);
     } catch (err: any) {
       setError(err.message || "Failed to submit request");
     } finally {
       setLoading(false);
     }
   }
+
+  const refCount = selectedPkg ? refCountForPkg(selectedPkg.slug) : 1;
 
   return (
     <AppLayout>
@@ -100,8 +149,8 @@ export default function NewVettingRequest() {
         )}
 
         <form onSubmit={handleSubmit} className="grid lg:grid-cols-3 gap-8">
-          {/* Left: form fields */}
           <div className="lg:col-span-2 space-y-6">
+            {/* Worker details */}
             <div className="bg-card rounded-xl border border-card-border p-6">
               <h2 className="font-semibold text-foreground mb-5">Worker Details</h2>
               <div className="grid sm:grid-cols-2 gap-4">
@@ -137,6 +186,89 @@ export default function NewVettingRequest() {
               </div>
             </div>
 
+            {/* Reference contacts */}
+            <div className="bg-card rounded-xl border border-card-border p-6">
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <h2 className="font-semibold text-foreground flex items-center gap-2">
+                    <UserCheck className="w-4 h-4 text-primary" />
+                    Reference Contacts
+                    <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">
+                      {refCount} required
+                    </span>
+                  </h2>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Our team will call these contacts to verify the worker's history and character
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-5 mt-5">
+                {refs.map((ref, i) => (
+                  <div key={i} className="rounded-xl border border-border bg-muted/30 p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-sm font-medium text-foreground flex items-center gap-1.5">
+                        <Phone className="w-3.5 h-3.5 text-primary" />
+                        Reference {i + 1}
+                        {i < refCount && <span className="text-xs text-muted-foreground">(required)</span>}
+                      </h3>
+                    </div>
+                    <div className="grid sm:grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Full Name *</Label>
+                        <Input
+                          placeholder="John Mwangi"
+                          value={ref.name}
+                          onChange={e => setRef(i, "name", e.target.value)}
+                          className="h-8 text-sm"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Phone Number *</Label>
+                        <Input
+                          placeholder="+254722..."
+                          value={ref.phone}
+                          onChange={e => setRef(i, "phone", e.target.value)}
+                          className="h-8 text-sm"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Relationship</Label>
+                        <Select value={ref.relationship} onValueChange={v => setRef(i, "relationship", v)}>
+                          <SelectTrigger className="h-8 text-sm">
+                            <SelectValue placeholder="Select relationship" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {relationships.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Their Organisation / Home</Label>
+                        <Input
+                          placeholder="Wanjiku Household, Karen"
+                          value={ref.employerName}
+                          onChange={e => setRef(i, "employerName", e.target.value)}
+                          className="h-8 text-sm"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Years Known</Label>
+                        <Input
+                          type="number"
+                          placeholder="2"
+                          min="0" max="30"
+                          value={ref.yearsWorked}
+                          onChange={e => setRef(i, "yearsWorked", e.target.value)}
+                          className="h-8 text-sm w-24"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             {/* Package selection */}
             <div className="bg-card rounded-xl border border-card-border p-6">
               <h2 className="font-semibold text-foreground mb-5">Select Package</h2>
@@ -160,7 +292,8 @@ export default function NewVettingRequest() {
                       <span className="font-bold text-foreground">{formatKsh(pkg.priceKsh)}</span>
                     </div>
                     <div className="flex items-center gap-1 text-xs text-muted-foreground mb-2">
-                      <Clock className="w-3 h-3" /> {pkg.turnaroundHours}h turnaround
+                      <Clock className="w-3 h-3" /> {pkg.turnaroundHours}h turnaround ·
+                      <span className="ml-1">{refCountForPkg(pkg.slug)} reference call{refCountForPkg(pkg.slug) > 1 ? "s" : ""}</span>
                     </div>
                     <div className="flex flex-wrap gap-x-4 gap-y-1">
                       {pkg.features.slice(0, 4).map(f => (
@@ -189,6 +322,10 @@ export default function NewVettingRequest() {
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Turnaround</span>
                       <span>{selectedPkg.turnaroundHours}h</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">References</span>
+                      <span>{refCountForPkg(selectedPkg.slug)} call{refCountForPkg(selectedPkg.slug) > 1 ? "s" : ""}</span>
                     </div>
                     <div className="border-t border-border pt-2 flex justify-between font-semibold">
                       <span>Total</span>

@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { db, vettingRequestsTable, vettingPackagesTable, usersTable, reportsTable, vettingStepsTable, activityItemsTable, staffRecordsTable } from "@workspace/db";
+import { db, vettingRequestsTable, vettingPackagesTable, usersTable, reportsTable, vettingStepsTable, activityItemsTable, staffRecordsTable, referenceContactsTable } from "@workspace/db";
 import { eq, desc, and, count } from "drizzle-orm";
 import { requireAuth, requireRole, type AuthRequest } from "../lib/auth-middleware";
 import { sendReportReadyEmail } from "../lib/email";
@@ -216,9 +216,13 @@ router.get("/admin/requests/:id/detail", requireAuth, requireRole("admin", "ops"
 
   if (!row) { res.status(404).json({ message: "Not found" }); return; }
 
-  const steps = await db.select().from(vettingStepsTable)
-    .where(eq(vettingStepsTable.vettingRequestId, id))
-    .orderBy(vettingStepsTable.order);
+  const [steps, refs] = await Promise.all([
+    db.select().from(vettingStepsTable)
+      .where(eq(vettingStepsTable.vettingRequestId, id))
+      .orderBy(vettingStepsTable.order),
+    db.select().from(referenceContactsTable)
+      .where(eq(referenceContactsTable.vettingRequestId, id)),
+  ]);
 
   res.json({
     id: row.vr.id,
@@ -249,7 +253,64 @@ router.get("/admin/requests/:id/detail", requireAuth, requireRole("admin", "ops"
       notes: s.notes,
       completedAt: s.completedAt?.toISOString() ?? null,
     })),
+    references: refs.map(r => ({
+      id: r.id,
+      name: r.name,
+      phone: r.phone,
+      relationship: r.relationship,
+      employerName: r.employerName,
+      yearsWorked: r.yearsWorked,
+      callStatus: r.callStatus,
+      callSummary: r.callSummary,
+    })),
   });
+});
+
+router.get("/admin/analytics", requireAuth, requireRole("admin", "ops"), async (_req, res): Promise<void> => {
+  const rows = await db
+    .select({ vr: vettingRequestsTable, pkg: vettingPackagesTable })
+    .from(vettingRequestsTable)
+    .leftJoin(vettingPackagesTable, eq(vettingRequestsTable.packageId, vettingPackagesTable.id))
+    .orderBy(desc(vettingRequestsTable.createdAt));
+
+  const monthMap = new Map<string, { requests: number; completed: number; revenue: number }>();
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date();
+    d.setMonth(d.getMonth() - i);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    monthMap.set(key, { requests: 0, completed: 0, revenue: 0 });
+  }
+  for (const { vr, pkg } of rows) {
+    const d = new Date(vr.createdAt);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    if (!monthMap.has(key)) continue;
+    const entry = monthMap.get(key)!;
+    entry.requests++;
+    if (vr.status === "completed") {
+      entry.completed++;
+      entry.revenue += pkg?.priceKsh ?? 0;
+    }
+  }
+
+  const months = Array.from(monthMap.entries()).map(([month, data]) => ({
+    month,
+    label: new Date(month + "-01").toLocaleString("en-US", { month: "short", year: "2-digit" }),
+    ...data,
+  }));
+
+  const allPkgs = await db.select().from(vettingPackagesTable);
+  const packageBreakdown = allPkgs.map(pkg => ({
+    name: pkg.name,
+    slug: pkg.slug,
+    total: rows.filter(r => r.vr.packageId === pkg.id).length,
+    completed: rows.filter(r => r.vr.packageId === pkg.id && r.vr.status === "completed").length,
+  }));
+
+  const totalRevenue = rows
+    .filter(r => r.vr.status === "completed")
+    .reduce((sum, r) => sum + (r.pkg?.priceKsh ?? 0), 0);
+
+  res.json({ months, packageBreakdown, totalRevenue });
 });
 
 router.patch("/admin/steps/:stepId", requireAuth, requireRole("admin", "ops"), async (req: AuthRequest, res): Promise<void> => {
