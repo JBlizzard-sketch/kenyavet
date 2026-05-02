@@ -5,8 +5,18 @@ import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import { formatDate, formatKsh, getStatusColor, getStatusLabel, getTrustScoreBg, getTrustScoreLabel } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
-import { ArrowLeft, CheckCircle, Clock, XCircle, AlertCircle, FileText, Shield, Smartphone, X, Loader2, Phone, UserCheck, Trash2 } from "lucide-react";
+import { ArrowLeft, CheckCircle, Clock, XCircle, AlertCircle, FileText, Shield, Smartphone, X, Loader2, Phone, UserCheck, Trash2, MessageSquare, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
+
+interface Message {
+  id: number;
+  requestId: number;
+  userId: number;
+  role: string;
+  senderName: string;
+  body: string;
+  createdAt: string;
+}
 
 interface VettingStep {
   id: number;
@@ -241,6 +251,38 @@ export default function VettingRequestDetail() {
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [cancelling, setCancelling] = useState(false);
 
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [msgInput, setMsgInput] = useState("");
+  const [msgSending, setMsgSending] = useState(false);
+  const msgBottomRef = useRef<HTMLDivElement>(null);
+
+  async function loadMessages() {
+    if (!id) return;
+    try {
+      const data = await apiFetch<{ messages: Message[] }>(`/vetting-requests/${id}/messages`, { token });
+      setMessages(data.messages);
+    } catch { /* silently ignore */ }
+  }
+
+  async function sendMessage(e: React.FormEvent) {
+    e.preventDefault();
+    if (!msgInput.trim() || msgSending) return;
+    setMsgSending(true);
+    try {
+      const msg = await apiFetch<Message>(`/vetting-requests/${id}/messages`, {
+        method: "POST", token,
+        body: { body: msgInput.trim() },
+      });
+      setMessages(prev => [...prev, msg]);
+      setMsgInput("");
+      setTimeout(() => msgBottomRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
+    } catch {
+      toast({ title: "Failed to send message", variant: "destructive" });
+    } finally {
+      setMsgSending(false);
+    }
+  }
+
   async function load() {
     try {
       const data = await apiFetch<RequestDetail>(`/vetting-requests/${id}`, { token });
@@ -252,7 +294,7 @@ export default function VettingRequestDetail() {
     }
   }
 
-  useEffect(() => { load(); }, [id, token]);
+  useEffect(() => { load(); loadMessages(); }, [id, token]);
 
   function handlePaymentSuccess() {
     setShowPayment(false);
@@ -457,6 +499,87 @@ export default function VettingRequestDetail() {
                 </ol>
               )}
             </div>
+            {/* Message thread */}
+            {req.status !== "pending_payment" && (
+              <div className="bg-card rounded-xl border border-card-border">
+                <div className="flex items-center gap-2 px-5 py-4 border-b border-border">
+                  <MessageSquare className="w-4 h-4 text-primary" />
+                  <h2 className="font-semibold text-foreground text-sm">Messages</h2>
+                  {messages.length > 0 && (
+                    <span className="ml-auto text-xs text-muted-foreground">{messages.length} message{messages.length !== 1 ? "s" : ""}</span>
+                  )}
+                </div>
+
+                {/* Thread */}
+                <div className="px-5 py-4 space-y-3 max-h-80 overflow-y-auto">
+                  {messages.length === 0 ? (
+                    <div className="text-center py-6">
+                      <MessageSquare className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
+                      <p className="text-sm text-muted-foreground">No messages yet. Ask the KenyaVet team a question or provide additional details.</p>
+                    </div>
+                  ) : (
+                    messages.map(msg => {
+                      const isOwn = msg.userId === user?.id;
+                      const isOps = msg.role === "ops" || msg.role === "admin";
+                      return (
+                        <div key={msg.id} className={`flex ${isOwn ? "justify-end" : "justify-start"}`}>
+                          <div className={`max-w-[80%] ${isOwn ? "items-end" : "items-start"} flex flex-col gap-1`}>
+                            <div className="flex items-center gap-1.5">
+                              {!isOwn && (
+                                <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white ${isOps ? "bg-primary" : "bg-emerald-500"}`}>
+                                  {msg.senderName.charAt(0)}
+                                </div>
+                              )}
+                              <span className="text-[11px] text-muted-foreground">
+                                {isOwn ? "You" : msg.senderName}
+                                {isOps && !isOwn && <span className="ml-1 px-1 py-0.5 bg-primary/10 text-primary rounded text-[10px] font-medium">KenyaVet</span>}
+                              </span>
+                            </div>
+                            <div className={`px-3 py-2 rounded-2xl text-sm leading-relaxed ${
+                              isOwn
+                                ? "bg-primary text-primary-foreground rounded-tr-sm"
+                                : isOps
+                                ? "bg-blue-50 text-blue-900 border border-blue-100 rounded-tl-sm"
+                                : "bg-muted text-foreground rounded-tl-sm"
+                            }`}>
+                              {msg.body}
+                            </div>
+                            <span className="text-[10px] text-muted-foreground px-1">
+                              {new Date(msg.createdAt).toLocaleTimeString("en-KE", { hour: "2-digit", minute: "2-digit" })}
+                              {" · "}
+                              {new Date(msg.createdAt).toLocaleDateString("en-KE", { day: "numeric", month: "short" })}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                  <div ref={msgBottomRef} />
+                </div>
+
+                {/* Compose */}
+                <div className="px-5 pb-4 pt-2 border-t border-border">
+                  <form onSubmit={sendMessage} className="flex gap-2 items-end">
+                    <textarea
+                      value={msgInput}
+                      onChange={e => setMsgInput(e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(e as unknown as React.FormEvent); } }}
+                      placeholder="Type a message… (Enter to send)"
+                      rows={2}
+                      className="flex-1 text-sm bg-background border border-border rounded-xl px-3 py-2 text-foreground placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-ring resize-none"
+                    />
+                    <Button
+                      type="submit"
+                      size="sm"
+                      disabled={!msgInput.trim() || msgSending}
+                      className="gap-1.5 shrink-0 h-[58px] px-4"
+                    >
+                      {msgSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                    </Button>
+                  </form>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Sidebar */}
