@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { db, documentsTable, vettingRequestsTable } from "@workspace/db";
+import { db, documentsTable, vettingRequestsTable, messagesTable, usersTable } from "@workspace/db";
 import { eq, and, asc } from "drizzle-orm";
 import { requireAuth, type AuthRequest } from "../lib/auth-middleware";
 
@@ -51,6 +51,26 @@ router.post("/vetting-requests/:id/documents", requireAuth, async (req: AuthRequ
     objectPath: String(objectPath),
     label: label ? String(label) : null,
   }).returning();
+
+  // Auto-post a message in the thread so both parties are notified
+  try {
+    let senderName = "KenyaVet Team";
+    if (req.userRole === "employer") {
+      const [u] = await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.id, req.userId!));
+      senderName = u?.name ?? "Employer";
+    }
+    const labelStr = label ? `${String(label)}: ` : "";
+    const msgBody = req.userRole === "employer"
+      ? `📎 Document uploaded: ${labelStr}${String(fileName)}`
+      : `📎 KenyaVet has added a document: ${labelStr}${String(fileName)}`;
+    await db.insert(messagesTable).values({
+      requestId,
+      userId: req.userId!,
+      role: req.userRole!,
+      senderName,
+      body: msgBody,
+    });
+  } catch { /* non-blocking — doc upload succeeded regardless */ }
 
   res.status(201).json(doc);
 });

@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { db, vettingRequestsTable, vettingPackagesTable, usersTable, reportsTable, vettingStepsTable, activityItemsTable, staffRecordsTable, referenceContactsTable, workersTable } from "@workspace/db";
+import { db, vettingRequestsTable, vettingPackagesTable, usersTable, reportsTable, vettingStepsTable, activityItemsTable, staffRecordsTable, referenceContactsTable, workersTable, messagesTable } from "@workspace/db";
 import { eq, desc, and, count, isNotNull, sql, avg } from "drizzle-orm";
 import { requireAuth, requireRole, type AuthRequest } from "../lib/auth-middleware";
 import { sendReportReadyEmail } from "../lib/email";
@@ -484,6 +484,24 @@ router.patch("/admin/steps/:stepId", requireAuth, requireRole("admin", "ops"), a
     .returning();
 
   if (!step) { res.status(404).json({ message: "Step not found" }); return; }
+
+  // Auto-post a message in the request thread when a step is completed
+  if (status === "completed") {
+    try {
+      const [vr] = await db.select({ id: vettingRequestsTable.id, workerName: vettingRequestsTable.workerName })
+        .from(vettingRequestsTable).where(eq(vettingRequestsTable.id, step.vettingRequestId));
+      if (vr) {
+        const notesClause = notes ? ` Notes: ${String(notes).slice(0, 120)}` : "";
+        await db.insert(messagesTable).values({
+          requestId: vr.id,
+          userId: req.userId!,
+          role: req.userRole!,
+          senderName: req.userRole === "admin" ? "KenyaVet Admin" : "KenyaVet Ops",
+          body: `✅ ${step.stepName} has been completed for ${vr.workerName}'s vetting.${notesClause}`,
+        });
+      }
+    } catch { /* non-blocking */ }
+  }
 
   res.json({ id: step.id, status: step.status, message: "Step updated" });
 });
