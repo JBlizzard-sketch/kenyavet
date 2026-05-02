@@ -145,6 +145,126 @@ router.patch("/admin/requests/:id/notes", requireAuth, requireRole("admin", "ops
   res.json({ id: vr.id, message: "Notes saved" });
 });
 
+router.get("/admin/reports", requireAuth, requireRole("admin", "ops"), async (_req, res): Promise<void> => {
+  const rows = await db
+    .select({ r: reportsTable, vr: vettingRequestsTable, emp: usersTable })
+    .from(reportsTable)
+    .leftJoin(vettingRequestsTable, eq(reportsTable.vettingRequestId, vettingRequestsTable.id))
+    .leftJoin(usersTable, eq(vettingRequestsTable.employerId, usersTable.id))
+    .orderBy(desc(reportsTable.createdAt));
+
+  res.json({
+    reports: rows.map(row => ({
+      id: row.r.id,
+      vettingRequestId: row.r.vettingRequestId,
+      workerName: row.r.workerName,
+      workerRole: row.r.workerRole,
+      packageName: row.r.packageName,
+      overallTrustScore: row.r.overallTrustScore,
+      scoreBreakdown: row.r.scoreBreakdown,
+      identityVerified: row.r.identityVerified,
+      dciCertificateStatus: row.r.dciCertificateStatus,
+      flags: row.r.flags,
+      summary: row.r.summary,
+      createdAt: row.r.createdAt.toISOString(),
+      employerName: row.emp?.name ?? "",
+      employerEmail: row.emp?.email ?? "",
+    })),
+  });
+});
+
+router.post("/admin/requests/:id/report", requireAuth, requireRole("admin", "ops"), async (req: AuthRequest, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ message: "Invalid ID" }); return; }
+
+  const [row] = await db
+    .select({ vr: vettingRequestsTable, pkg: vettingPackagesTable, emp: usersTable })
+    .from(vettingRequestsTable)
+    .leftJoin(vettingPackagesTable, eq(vettingRequestsTable.packageId, vettingPackagesTable.id))
+    .leftJoin(usersTable, eq(vettingRequestsTable.employerId, usersTable.id))
+    .where(eq(vettingRequestsTable.id, id));
+
+  if (!row) { res.status(404).json({ message: "Not found" }); return; }
+
+  const {
+    scoreBreakdown, summary, identityVerified = true,
+    dciCertificateStatus = "verified", referencesSummary,
+    socialMediaSummary, addressVerified, flags = [],
+  } = req.body;
+
+  if (!scoreBreakdown || !summary) {
+    res.status(400).json({ message: "scoreBreakdown and summary are required" }); return;
+  }
+
+  const trustScore =
+    (scoreBreakdown.identity ?? 0) +
+    (scoreBreakdown.references ?? 0) +
+    (scoreBreakdown.dciCertificate ?? 0) +
+    (scoreBreakdown.socialMedia ?? 0) +
+    (scoreBreakdown.addressVisit ?? 0);
+
+  let reportId: number;
+  const existingReportId = row.vr.reportId;
+
+  if (existingReportId) {
+    await db.update(reportsTable).set({
+      overallTrustScore: trustScore, scoreBreakdown, summary,
+      identityVerified, dciCertificateStatus, referencesSummary,
+      socialMediaSummary, addressVerified, flags,
+    }).where(eq(reportsTable.id, existingReportId));
+    reportId = existingReportId;
+  } else {
+    const [report] = await db.insert(reportsTable).values({
+      vettingRequestId: id,
+      workerName: row.vr.workerName,
+      workerRole: row.vr.workerRole,
+      workerPhotoUrl: row.vr.workerPhotoUrl,
+      packageName: row.pkg?.name ?? "",
+      overallTrustScore: trustScore,
+      scoreBreakdown,
+      summary,
+      identityVerified,
+      dciCertificateStatus,
+      referencesSummary,
+      socialMediaSummary,
+      addressVerified,
+      flags,
+    }).returning();
+    reportId = report.id;
+  }
+
+  await db.update(vettingRequestsTable)
+    .set({ status: "completed", trustScore, reportId, completedAt: new Date() } as any)
+    .where(eq(vettingRequestsTable.id, id));
+
+  await db.update(vettingStepsTable)
+    .set({ status: "completed", completedAt: new Date() })
+    .where(eq(vettingStepsTable.vettingRequestId, id));
+
+  await db.insert(activityItemsTable).values({
+    userId: row.vr.employerId,
+    type: "report_ready",
+    message: `Vetting report ready for ${row.vr.workerName} — Trust Score: ${trustScore}/100`,
+    workerName: row.vr.workerName,
+    linkId: id,
+  });
+
+  if (row.emp) {
+    await sendReportReadyEmail({
+      employerName: row.emp.name,
+      employerEmail: row.emp.email,
+      workerName: row.vr.workerName,
+      workerRole: row.vr.workerRole,
+      trustScore,
+      recommendation: trustScore >= 80 ? "hire" : trustScore >= 60 ? "caution" : "do_not_hire",
+      reportId,
+      requestId: id,
+    });
+  }
+
+  res.json({ reportId, trustScore, message: "Report generated and employer notified" });
+});
+
 router.patch("/admin/reports/:id", requireAuth, requireRole("admin", "ops"), async (req: AuthRequest, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ message: "Invalid ID" }); return; }

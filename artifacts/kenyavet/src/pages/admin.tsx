@@ -6,7 +6,7 @@ import { apiFetch } from "@/lib/api";
 import { formatDate, formatKsh, getStatusColor, getStatusLabel, getTrustScoreBg } from "@/lib/utils";
 import {
   Users, ClipboardList, Shield, Search,
-  ChevronRight, X, Save, Bell, FileEdit, CheckCircle, Loader2, BarChart3, TrendingUp,
+  ChevronRight, X, Save, Bell, FileEdit, CheckCircle, Loader2, BarChart3, TrendingUp, FileText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,6 +39,23 @@ interface AdminRequest {
   employerPhone: string | null;
   employerNeighbourhood: string | null;
   createdAt: string;
+}
+
+interface AdminReport {
+  id: number;
+  vettingRequestId: number;
+  workerName: string;
+  workerRole: string;
+  packageName: string;
+  overallTrustScore: number;
+  scoreBreakdown: Record<string, number | null>;
+  identityVerified: boolean;
+  dciCertificateStatus: string;
+  flags: string[];
+  summary: string;
+  createdAt: string;
+  employerName: string;
+  employerEmail: string;
 }
 
 interface AdminStats {
@@ -260,8 +277,9 @@ export default function Admin() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [updatingId, setUpdatingId] = useState<number | null>(null);
   const [drawer, setDrawer] = useState<AdminRequest | null>(null);
-  const [activeTab, setActiveTab] = useState<"requests" | "analytics">("requests");
+  const [activeTab, setActiveTab] = useState<"requests" | "analytics" | "reports">("requests");
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
+  const [reports, setReports] = useState<AdminReport[]>([]);
 
   async function load() {
     try {
@@ -282,8 +300,16 @@ export default function Admin() {
     } catch {}
   }
 
+  async function loadReports() {
+    try {
+      const data = await apiFetch<{ reports: AdminReport[] }>("/admin/reports", { token });
+      setReports(data.reports);
+    } catch {}
+  }
+
   useEffect(() => { load(); }, [token]);
   useEffect(() => { if (activeTab === "analytics") loadAnalytics(); }, [activeTab, token]);
+  useEffect(() => { if (activeTab === "reports") loadReports(); }, [activeTab, token]);
 
   async function updateStatus(id: number, status: string) {
     setUpdatingId(id);
@@ -339,7 +365,7 @@ export default function Admin() {
             <p className="text-muted-foreground text-sm mt-0.5">Manage all vetting requests and operations</p>
           </div>
           <div className="flex gap-2">
-            {(["requests", "analytics"] as const).map(tab => (
+            {(["requests", "analytics", "reports"] as const).map(tab => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -349,8 +375,8 @@ export default function Admin() {
                     : "bg-muted text-muted-foreground hover:bg-muted/80"
                 }`}
               >
-                {tab === "requests" ? <ClipboardList className="w-3.5 h-3.5" /> : <BarChart3 className="w-3.5 h-3.5" />}
-                {tab === "requests" ? "Requests" : "Analytics"}
+                {tab === "requests" ? <ClipboardList className="w-3.5 h-3.5" /> : tab === "analytics" ? <BarChart3 className="w-3.5 h-3.5" /> : <FileText className="w-3.5 h-3.5" />}
+                {tab === "requests" ? "Requests" : tab === "analytics" ? "Analytics" : "Reports"}
               </button>
             ))}
           </div>
@@ -449,6 +475,99 @@ export default function Admin() {
                   </div>
                 </div>
               </>
+            )}
+          </div>
+        )}
+
+        {/* Reports tab */}
+        {activeTab === "reports" && (
+          <div className="space-y-4">
+            {reports.length === 0 ? (
+              <div className="py-16 text-center text-muted-foreground text-sm">
+                <FileText className="w-8 h-8 mx-auto mb-3 opacity-30" />
+                No reports generated yet. Use the Ops workflow to complete vetting requests.
+              </div>
+            ) : (
+              <div className="bg-card rounded-xl border border-card-border overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/40">
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">Worker</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground hidden sm:table-cell">Package</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">Trust Score</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground hidden md:table-cell">Employer</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground hidden lg:table-cell">Checks</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground hidden lg:table-cell">Date</th>
+                      <th className="px-4 py-3" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reports.map(report => {
+                      const recommendation = report.overallTrustScore >= 80 ? "hire" : report.overallTrustScore >= 60 ? "caution" : "do_not_hire";
+                      const recBadge = {
+                        hire: "bg-emerald-100 text-emerald-700",
+                        caution: "bg-amber-100 text-amber-700",
+                        do_not_hire: "bg-red-100 text-red-700",
+                      }[recommendation];
+                      const recLabel = { hire: "Safe to Hire", caution: "Caution", do_not_hire: "Do Not Hire" }[recommendation];
+                      const breakdown = report.scoreBreakdown as Record<string, number | null>;
+                      return (
+                        <tr key={report.id} className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors">
+                          <td className="px-4 py-3">
+                            <p className="font-medium text-foreground">{report.workerName}</p>
+                            <p className="text-xs text-muted-foreground">{report.workerRole}</p>
+                          </td>
+                          <td className="px-4 py-3 hidden sm:table-cell">
+                            <span className="text-xs text-muted-foreground">{report.packageName}</span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex flex-col gap-1">
+                              <span className={`text-xs font-bold px-2.5 py-1 rounded-full w-fit ${getTrustScoreBg(report.overallTrustScore)}`}>
+                                {report.overallTrustScore}/100
+                              </span>
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium w-fit ${recBadge}`}>{recLabel}</span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 hidden md:table-cell">
+                            <p className="text-sm text-foreground">{report.employerName}</p>
+                            <p className="text-xs text-muted-foreground">{report.employerEmail}</p>
+                          </td>
+                          <td className="px-4 py-3 hidden lg:table-cell">
+                            <div className="flex flex-wrap gap-1">
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${report.identityVerified ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
+                                {report.identityVerified ? "ID ✓" : "ID ✗"}
+                              </span>
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${report.dciCertificateStatus === "verified" ? "bg-emerald-100 text-emerald-700" : report.dciCertificateStatus === "failed" ? "bg-red-100 text-red-700" : "bg-muted text-muted-foreground"}`}>
+                                DCI: {report.dciCertificateStatus}
+                              </span>
+                              {report.flags.length > 0 && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-100 text-red-700">
+                                  {report.flags.length} flag{report.flags.length > 1 ? "s" : ""}
+                                </span>
+                              )}
+                            </div>
+                            {breakdown && (
+                              <div className="mt-1 flex gap-1 text-[10px] text-muted-foreground">
+                                {Object.entries(breakdown).filter(([, v]) => v != null).map(([k, v]) => (
+                                  <span key={k} className="font-mono">{v}</span>
+                                )).reduce((acc: React.ReactNode[], el, i) => i === 0 ? [el] : [...acc, <span key={`sep-${i}`}>·</span>, el], [])}
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 hidden lg:table-cell text-xs text-muted-foreground">{formatDate(report.createdAt)}</td>
+                          <td className="px-4 py-3">
+                            <Link href={`/reports?requestId=${report.vettingRequestId}`}>
+                              <Button size="sm" variant="outline" className="gap-1.5 h-8">
+                                <FileText className="w-3.5 h-3.5" /> View
+                              </Button>
+                            </Link>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         )}

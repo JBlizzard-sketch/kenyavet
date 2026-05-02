@@ -75,6 +75,8 @@ All under `/api`:
 - `PATCH /admin/steps/:stepId` — update individual vetting step status/notes
 - `PATCH /admin/references/:refId` — update reference call status/summary (admin/ops only)
 - `GET /admin/analytics` — last 6 months activity + package breakdown + revenue
+- `GET /admin/reports` — all generated reports with worker, employer, scores, flags
+- `POST /admin/requests/:id/report` — ops-authored report creation (replaces auto-generation); accepts score breakdown, summaries, identity/DCI status, flags; auto-computes trust score, marks request completed, fires email
 - `PATCH /admin/reports/:id`, `POST /admin/requests/:id/notify`
 
 ### Landing
@@ -92,8 +94,8 @@ All under `/api`:
 - `/workers` — verified worker directory (merged from workersTable + completed reports)
 - `/staff` — household staff management, add-from-report, QR card
 - `/reports` — completed vetting reports with QR card button
-- `/admin` — admin panel (admin/ops only): Requests tab + Analytics tab (recharts bar/line charts)
-- `/ops` — ops workflow: step-by-step drawer with reference contacts, progress bar, complete button
+- `/admin` — admin panel (admin/ops only): Requests tab + Analytics tab (recharts bar/line charts) + Reports tab (all published reports with trust scores, recommendation badges, checks)
+- `/ops` — ops workflow: step-by-step drawer with reference contacts, progress bar, and full ReportBuilder form (trust score sliders, identity/DCI selects, summaries, flags, "Publish Report" button)
 - `/verify` — PUBLIC: QR scan / report ID lookup (?reportId= and ?qr= params)
 - `/profile` — user profile + password change (strength meter, show/hide toggle)
 
@@ -117,6 +119,7 @@ All under `/api`:
 - Premium package → 3 reference calls required
 - Stored in `reference_contacts` table; fetched alongside steps in admin/ops detail views
 - Ops drawer: `RefCallCard` component — expandable per-reference editor with call status dropdown (pending/completed/no_answer/busy/wrong_number) + summary textarea + save button; shows X/N called counter in header
+- Ops drawer: `ReportBuilder` component — replaces the old "Complete" button; live trust score gauge, per-dimension sliders (Identity/25, References/30, DCI/20, Social/15, Address/10 for premium), identity + DCI selects, summary/refs/social textareas, flag chips; "Publish Report & Notify Employer" sends email and marks request complete
 - Employer detail page: read-only reference section shows call status badges and summaries once ops has called
 - `GET /vetting-requests/:id` now returns `references[]` and `stepProgress` (completed/total counts)
 - `GET /vetting-requests` list shows mini step progress bar for in_progress requests
