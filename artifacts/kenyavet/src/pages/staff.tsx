@@ -309,14 +309,18 @@ function StaffCard({ member, onStatusChange, onQr, hasReport }: {
   const renewalSoon = renewalTs != null && !renewalOverdue && renewalTs < now + 60 * 24 * 60 * 60 * 1000;
 
   return (
-    <div className="bg-card rounded-xl border border-card-border p-4">
+    <div className="bg-card rounded-xl border border-card-border p-4 hover:shadow-sm transition-shadow">
       <div className="flex items-start gap-4">
-        <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
-          <span className="text-primary font-bold text-sm">{member.workerName.charAt(0)}</span>
-        </div>
+        <Link href={`/staff/${member.id}`}>
+          <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-0.5 cursor-pointer hover:bg-primary/20 transition-colors">
+            <span className="text-primary font-bold text-sm">{member.workerName.charAt(0)}</span>
+          </div>
+        </Link>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <p className="font-semibold text-foreground text-sm">{member.workerName}</p>
+            <Link href={`/staff/${member.id}`}>
+              <p className="font-semibold text-foreground text-sm hover:text-primary transition-colors cursor-pointer">{member.workerName}</p>
+            </Link>
             {member.status === "active" ? (
               <span className="text-xs px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full">Active</span>
             ) : (

@@ -234,13 +234,20 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                     ))
                   )}
                 </div>
-                <div className="px-4 py-2.5 border-t border-border">
+                <div className="px-4 py-2.5 border-t border-border flex items-center justify-between">
                   <Link
-                    href="/vetting-requests"
+                    href="/notifications"
                     onClick={() => setNotifOpen(false)}
                     className="text-xs text-primary hover:underline"
                   >
-                    View all requests →
+                    View all notifications →
+                  </Link>
+                  <Link
+                    href="/vetting-requests"
+                    onClick={() => setNotifOpen(false)}
+                    className="text-xs text-muted-foreground hover:underline"
+                  >
+                    Requests →
                   </Link>
                 </div>
               </div>

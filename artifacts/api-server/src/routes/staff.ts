@@ -103,6 +103,18 @@ router.patch("/staff/:id", requireAuth, async (req: AuthRequest, res): Promise<v
   res.json(formatStaff(record));
 });
 
+router.get("/staff/:id", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ message: "Invalid ID" }); return; }
+  const [record] = await db.select().from(staffRecordsTable)
+    .where(and(eq(staffRecordsTable.id, id), eq(staffRecordsTable.employerId, req.userId!)));
+  if (!record) { res.status(404).json({ message: "Not found" }); return; }
+  res.json({
+    ...formatStaff(record),
+    vettingRequestId: record.vettingRequestId ?? null,
+  });
+});
+
 router.delete("/staff/:id", requireAuth, async (req: AuthRequest, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   await db.delete(staffRecordsTable)

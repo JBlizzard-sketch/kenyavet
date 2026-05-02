@@ -10,6 +10,7 @@ export const activityItemsTable = pgTable("activity_items", {
   message: text("message").notNull(),
   workerName: text("worker_name"),
   linkId: integer("link_id"),
+  readAt: timestamp("read_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

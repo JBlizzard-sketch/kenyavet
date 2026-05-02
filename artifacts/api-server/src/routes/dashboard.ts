@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, vettingRequestsTable, vettingPackagesTable, staffRecordsTable, activityItemsTable, reportsTable } from "@workspace/db";
-import { eq, and, count, desc } from "drizzle-orm";
+import { eq, and, count, desc, isNull, lte } from "drizzle-orm";
 import { requireAuth, type AuthRequest } from "../lib/auth-middleware";
 
 const router: IRouter = Router();
@@ -49,7 +49,7 @@ router.get("/dashboard/activity", requireAuth, async (req: AuthRequest, res): Pr
     .from(activityItemsTable)
     .where(eq(activityItemsTable.userId, uid))
     .orderBy(desc(activityItemsTable.createdAt))
-    .limit(20);
+    .limit(50);
 
   res.json(items.map(item => ({
     id: item.id,
@@ -57,8 +57,30 @@ router.get("/dashboard/activity", requireAuth, async (req: AuthRequest, res): Pr
     message: item.message,
     workerName: item.workerName,
     linkId: item.linkId,
+    readAt: item.readAt?.toISOString() ?? null,
     createdAt: item.createdAt.toISOString(),
   })));
+});
+
+router.patch("/notifications/:id/read", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ message: "Invalid ID" }); return; }
+  const [item] = await db.update(activityItemsTable)
+    .set({ readAt: new Date() })
+    .where(and(eq(activityItemsTable.id, id), eq(activityItemsTable.userId, req.userId!)))
+    .returning();
+  if (!item) { res.status(404).json({ message: "Not found" }); return; }
+  res.json({ success: true });
+});
+
+router.post("/notifications/mark-all-read", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  await db.update(activityItemsTable)
+    .set({ readAt: new Date() })
+    .where(and(
+      eq(activityItemsTable.userId, req.userId!),
+      isNull(activityItemsTable.readAt),
+    ));
+  res.json({ success: true });
 });
 
 export default router;
