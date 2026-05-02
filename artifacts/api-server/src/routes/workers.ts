@@ -31,8 +31,10 @@ router.get("/workers", async (req, res): Promise<void> => {
   )!);
   if (minScore) conditions.push(gte(workersTable.trustScore, minScore));
 
+  const whereClause = conditions.length === 0 ? undefined : conditions.length === 1 ? conditions[0] : and(...conditions);
+
   const workersList = await db.select().from(workersTable)
-    .where(conditions.length > 0 ? (conditions.length === 1 ? conditions[0] : conditions[0]) : undefined)
+    .where(whereClause)
     .orderBy(desc(workersTable.trustScore))
     .limit(limit)
     .offset(offset);

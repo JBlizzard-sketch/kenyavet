@@ -25,6 +25,7 @@ interface RecentRequest {
   status: string;
   packageName: string;
   trustScore: number | null;
+  reportId: number | null;
   createdAt: string;
 }
 
@@ -106,6 +107,9 @@ export default function Dashboard() {
     ? Math.round((stats.completed / stats.totalRequests) * 100)
     : 0;
 
+  const readyReports = recent.filter(r => r.status === "completed" && r.reportId != null);
+  const pendingPayments = recent.filter(r => r.status === "pending_payment");
+
   const statCards = [
     { label: "Total Requests", value: stats?.totalRequests ?? 0, icon: ClipboardList, color: "text-blue-600 bg-blue-50" },
     { label: "Completed", value: stats?.completed ?? 0, icon: CheckCircle, color: "text-emerald-600 bg-emerald-50" },
@@ -131,6 +135,78 @@ export default function Dashboard() {
             </Button>
           </Link>
         </div>
+
+        {/* Pending payment nudge */}
+        {!loading && pendingPayments.length > 0 && (
+          <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 overflow-hidden">
+            <div className="flex items-center gap-2.5 px-5 py-3 border-b border-amber-200 bg-amber-100/60">
+              <CreditCard className="w-4 h-4 text-amber-700 shrink-0" />
+              <p className="text-sm font-semibold text-amber-900 flex-1">
+                {pendingPayments.length === 1
+                  ? "1 vetting request awaiting payment"
+                  : `${pendingPayments.length} vetting requests awaiting payment`}
+              </p>
+            </div>
+            <div className="divide-y divide-amber-100">
+              {pendingPayments.map(r => (
+                <div key={r.id} className="flex items-center gap-4 px-5 py-3.5">
+                  <div className="w-8 h-8 rounded-full bg-amber-200 flex items-center justify-center shrink-0">
+                    <span className="text-amber-800 text-xs font-bold">{r.workerName.charAt(0)}</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-amber-900 truncate">{r.workerName}</p>
+                    <p className="text-xs text-amber-700">{r.workerRole} · {r.packageName}</p>
+                  </div>
+                  <Link href={`/vetting-requests/${r.id}`}>
+                    <Button size="sm" className="h-8 text-xs gap-1.5 bg-amber-600 hover:bg-amber-700 text-white shrink-0">
+                      <CreditCard className="w-3.5 h-3.5" /> Pay Now
+                    </Button>
+                  </Link>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Report Ready banner */}
+        {!loading && readyReports.length > 0 && (
+          <div className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 overflow-hidden">
+            <div className="flex items-center gap-2.5 px-5 py-3 border-b border-emerald-200 bg-emerald-100/60">
+              <FileText className="w-4 h-4 text-emerald-700 shrink-0" />
+              <p className="text-sm font-semibold text-emerald-900 flex-1">
+                {readyReports.length === 1
+                  ? "Your vetting report is ready"
+                  : `${readyReports.length} vetting reports are ready`}
+              </p>
+              <Link href="/reports" className="text-xs text-emerald-700 hover:underline font-medium flex items-center gap-1">
+                View all reports <ArrowRight className="w-3 h-3" />
+              </Link>
+            </div>
+            <div className="divide-y divide-emerald-100">
+              {readyReports.map(r => (
+                <div key={r.id} className="flex items-center gap-4 px-5 py-3.5">
+                  <div className="w-8 h-8 rounded-full bg-emerald-200 flex items-center justify-center shrink-0">
+                    <span className="text-emerald-800 text-xs font-bold">{r.workerName.charAt(0)}</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-emerald-900 truncate">{r.workerName}</p>
+                    <p className="text-xs text-emerald-700">{r.workerRole} · {r.packageName}</p>
+                  </div>
+                  {r.trustScore != null && (
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-semibold shrink-0 ${getTrustScoreBg(r.trustScore)}`}>
+                      {r.trustScore}/100
+                    </span>
+                  )}
+                  <Link href={`/reports?requestId=${r.id}`}>
+                    <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5 border-emerald-300 text-emerald-800 hover:bg-emerald-100 shrink-0">
+                      <FileText className="w-3.5 h-3.5" /> View Report
+                    </Button>
+                  </Link>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Stats */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">

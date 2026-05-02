@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { db, vettingRequestsTable, vettingPackagesTable, staffRecordsTable, activityItemsTable } from "@workspace/db";
+import { db, vettingRequestsTable, vettingPackagesTable, staffRecordsTable, activityItemsTable, reportsTable } from "@workspace/db";
 import { eq, and, count, desc } from "drizzle-orm";
 import { requireAuth, type AuthRequest } from "../lib/auth-middleware";
 
@@ -37,6 +37,7 @@ router.get("/dashboard/recent-requests", requireAuth, async (req: AuthRequest, r
     status: r.vr.status,
     packageName: r.pkg?.name ?? "",
     trustScore: r.vr.trustScore,
+    reportId: r.vr.reportId,
     createdAt: r.vr.createdAt.toISOString(),
   })));
 });

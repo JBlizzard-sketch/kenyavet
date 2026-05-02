@@ -120,6 +120,13 @@ All under `/api`:
 - Stored in `reference_contacts` table; fetched alongside steps in admin/ops detail views
 - Ops drawer: `RefCallCard` component — expandable per-reference editor with call status dropdown (pending/completed/no_answer/busy/wrong_number) + summary textarea + save button; shows X/N called counter in header
 - Ops drawer: `ReportBuilder` component — replaces the old "Complete" button; live trust score gauge, per-dimension sliders (Identity/25, References/30, DCI/20, Social/15, Address/10 for premium), identity + DCI selects, summary/refs/social textareas, flag chips; "Publish Report & Notify Employer" sends email and marks request complete
+- Worker registry auto-population: on report publish, worker is auto-inserted (or updated) in `workersTable` with QR code `KV-{year}-{reportId}`, badges (ID Verified, DCI Clean, No Flags, Top/Highly Rated), trust score, and photo
+- Email: fully redesigned HTML template — table-based layout for email-client compatibility, live trust score bar, per-dimension score breakdown bars (identity/references/DCI/social/address), color-coded recommendation badge, verify URL hint; accepts `scoreBreakdown` field
+- Dashboard "Report Ready" banner: emerald callout section above stats cards — auto-surfaces any recently completed requests with direct "View Report" buttons; `reportId` now included in `GET /dashboard/recent-requests` response
+- Dashboard "Pending Payment" nudge: amber banner lists any requests stuck in `pending_payment` with a direct "Pay Now" button to the request detail page
+- Workers page: 300ms debounced search input (prevents API hammering on every keystroke); `setLoading(true)` on filter change for correct loading state
+- Workers API (`GET /workers`): fixed multi-condition query bug — was always using only `conditions[0]`; now correctly uses `and(...conditions)` when multiple filters (role + query + minScore) are combined
+- Staff page: re-vetting overdue/due-soon banner above the roster with red (overdue) or amber (within 60 days) styling and "Schedule Re-Vetting" CTA; StaffCard now shows exact renewal date and differentiates "overdue" (red) from "due soon" (amber)
 - Employer detail page: read-only reference section shows call status badges and summaries once ops has called
 - `GET /vetting-requests/:id` now returns `references[]` and `stepProgress` (completed/total counts)
 - `GET /vetting-requests` list shows mini step progress bar for in_progress requests

@@ -109,6 +109,13 @@ export default function Staff() {
 
   const active = staff.filter(s => s.status === "active");
   const inactive = staff.filter(s => s.status !== "active");
+  const now = Date.now();
+  const overdueStaff = active.filter(s => s.renewalDueAt && new Date(s.renewalDueAt).getTime() < now);
+  const dueSoonStaff = active.filter(s => {
+    if (!s.renewalDueAt) return false;
+    const ts = new Date(s.renewalDueAt).getTime();
+    return ts >= now && ts < now + 60 * 24 * 60 * 60 * 1000;
+  });
 
   // Completed requests not yet in staff roster
   const staffedRequestIds = new Set<number>(); // We don't have vettingRequestId on staff yet so show all
@@ -148,6 +155,26 @@ export default function Staff() {
             <Plus className="w-4 h-4" /> Add Staff Member
           </Button>
         </div>
+
+        {/* Re-vetting overdue banner */}
+        {(overdueStaff.length > 0 || dueSoonStaff.length > 0) && (
+          <div className={`rounded-xl border p-4 mb-6 ${overdueStaff.length > 0 ? "bg-red-50 border-red-200" : "bg-amber-50 border-amber-200"}`}>
+            <p className={`text-sm font-semibold mb-1 flex items-center gap-1.5 ${overdueStaff.length > 0 ? "text-red-800" : "text-amber-800"}`}>
+              <CalendarClock className="w-4 h-4" />
+              {overdueStaff.length > 0
+                ? `${overdueStaff.length} staff member${overdueStaff.length !== 1 ? "s" : ""} overdue for re-vetting`
+                : `${dueSoonStaff.length} staff member${dueSoonStaff.length !== 1 ? "s" : ""} due for re-vetting soon`}
+            </p>
+            <p className={`text-xs mb-3 ${overdueStaff.length > 0 ? "text-red-700" : "text-amber-700"}`}>
+              Annual re-vetting keeps your household protected and maintains trust scores.
+            </p>
+            <Link href="/vetting-requests/new">
+              <Button size="sm" variant="outline" className={`gap-1.5 text-xs ${overdueStaff.length > 0 ? "border-red-300 text-red-700 hover:bg-red-100" : "border-amber-300 text-amber-700 hover:bg-amber-100"}`}>
+                <Shield className="w-3 h-3" /> Schedule Re-Vetting
+              </Button>
+            </Link>
+          </div>
+        )}
 
         {/* Add from completed requests banner */}
         {unrosteredRequests.length > 0 && (
@@ -269,7 +296,10 @@ function StaffCard({ member, onStatusChange, onQr, hasReport }: {
   onQr: (m: StaffRecord) => void;
   hasReport: boolean;
 }) {
-  const renewalSoon = member.renewalDueAt && new Date(member.renewalDueAt) < new Date(Date.now() + 60 * 24 * 60 * 60 * 1000);
+  const now = Date.now();
+  const renewalTs = member.renewalDueAt ? new Date(member.renewalDueAt).getTime() : null;
+  const renewalOverdue = renewalTs != null && renewalTs < now;
+  const renewalSoon = renewalTs != null && !renewalOverdue && renewalTs < now + 60 * 24 * 60 * 60 * 1000;
 
   return (
     <div className="bg-card rounded-xl border border-card-border p-4">
@@ -296,9 +326,14 @@ function StaffCard({ member, onStatusChange, onQr, hasReport }: {
             {member.phone && <span className="flex items-center gap-1"><Phone className="w-3 h-3" />{member.phone}</span>}
             {member.startDate && <span>Since {formatDate(member.startDate)}</span>}
           </div>
-          {renewalSoon && (
+          {renewalOverdue && (
+            <p className="text-xs text-red-600 flex items-center gap-1 mt-1.5 font-medium">
+              <CalendarClock className="w-3 h-3" /> Re-vetting overdue — renewal past {member.renewalDueAt ? new Date(member.renewalDueAt).toLocaleDateString("en-KE", { day: "numeric", month: "short", year: "numeric" }) : ""}
+            </p>
+          )}
+          {renewalSoon && !renewalOverdue && (
             <p className="text-xs text-amber-600 flex items-center gap-1 mt-1.5">
-              <CalendarClock className="w-3 h-3" /> Re-vetting due soon
+              <CalendarClock className="w-3 h-3" /> Re-vetting due {member.renewalDueAt ? new Date(member.renewalDueAt).toLocaleDateString("en-KE", { day: "numeric", month: "short" }) : "soon"}
             </p>
           )}
           {member.notes && <p className="text-xs text-muted-foreground mt-1 italic">"{member.notes}"</p>}

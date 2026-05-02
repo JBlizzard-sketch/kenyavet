@@ -36,11 +36,18 @@ export default function Workers() {
   const { token } = useAuth();
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("All");
   const [minScore, setMinScore] = useState("");
 
   useEffect(() => {
+    const timer = setTimeout(() => setSearch(searchInput), 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  useEffect(() => {
+    setLoading(true);
     const params = new URLSearchParams();
     if (search) params.set("query", search);
     if (roleFilter !== "All") params.set("role", roleFilter);
@@ -83,8 +90,8 @@ export default function Workers() {
             <Input
               className="pl-9"
               placeholder="Search by name or neighbourhood…"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
+              value={searchInput}
+              onChange={e => setSearchInput(e.target.value)}
             />
           </div>
           <select

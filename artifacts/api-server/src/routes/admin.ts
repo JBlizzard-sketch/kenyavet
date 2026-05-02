@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { db, vettingRequestsTable, vettingPackagesTable, usersTable, reportsTable, vettingStepsTable, activityItemsTable, staffRecordsTable, referenceContactsTable } from "@workspace/db";
+import { db, vettingRequestsTable, vettingPackagesTable, usersTable, reportsTable, vettingStepsTable, activityItemsTable, staffRecordsTable, referenceContactsTable, workersTable } from "@workspace/db";
 import { eq, desc, and, count } from "drizzle-orm";
 import { requireAuth, requireRole, type AuthRequest } from "../lib/auth-middleware";
 import { sendReportReadyEmail } from "../lib/email";
@@ -259,6 +259,37 @@ router.post("/admin/requests/:id/report", requireAuth, requireRole("admin", "ops
       recommendation: trustScore >= 80 ? "hire" : trustScore >= 60 ? "caution" : "do_not_hire",
       reportId,
       requestId: id,
+      scoreBreakdown,
+    });
+  }
+
+  // Auto-populate worker registry
+  const qrCode = `KV-${new Date().getFullYear()}-${String(reportId).padStart(5, "0")}`;
+  const badges: string[] = [];
+  if (identityVerified) badges.push("ID Verified");
+  if (dciCertificateStatus === "verified") badges.push("DCI Clean");
+  if ((flags as string[]).length === 0) badges.push("No Flags");
+  if (trustScore >= 80) badges.push("Top Rated");
+  else if (trustScore >= 70) badges.push("Highly Rated");
+
+  const existingWorkers = await db
+    .select()
+    .from(workersTable)
+    .where(eq(workersTable.name, row.vr.workerName))
+    .limit(1);
+
+  if (existingWorkers.length > 0) {
+    await db.update(workersTable)
+      .set({ trustScore, badges, verifiedAt: new Date() })
+      .where(eq(workersTable.id, existingWorkers[0].id));
+  } else {
+    await db.insert(workersTable).values({
+      name: row.vr.workerName,
+      role: row.vr.workerRole,
+      trustScore,
+      photoUrl: row.vr.workerPhotoUrl ?? null,
+      qrCode,
+      badges,
     });
   }
 
