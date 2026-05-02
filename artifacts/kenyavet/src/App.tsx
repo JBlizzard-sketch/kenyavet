@@ -29,6 +29,7 @@ import ResetPassword from "@/pages/reset-password";
 import WorkerPublic from "@/pages/worker-public";
 import ReportPublic from "@/pages/report-public";
 import Analytics from "@/pages/analytics";
+import Messages from "@/pages/messages";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient({
@@ -103,6 +104,9 @@ function Router() {
       </Route>
       <Route path="/analytics">
         {() => <PrivateRoute component={Analytics} />}
+      </Route>
+      <Route path="/messages">
+        {() => <PrivateRoute component={Messages} />}
       </Route>
 
       <Route component={NotFound} />

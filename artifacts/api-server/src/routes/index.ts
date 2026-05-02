@@ -14,6 +14,8 @@ import landingRouter from "./landing";
 import searchRouter from "./search";
 import analyticsRouter from "./analytics";
 import messagesRouter from "./messages";
+import storageRouter from "./storage";
+import documentsRouter from "./documents";
 
 const router: IRouter = Router();
 
@@ -32,5 +34,7 @@ router.use(landingRouter);
 router.use(searchRouter);
 router.use(analyticsRouter);
 router.use(messagesRouter);
+router.use(storageRouter);
+router.use(documentsRouter);
 
 export default router;

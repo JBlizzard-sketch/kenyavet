@@ -8,7 +8,7 @@ import {
   LayoutDashboard, ClipboardList, Users, FileText,
   UserCog, Settings, LogOut, Menu, X, Shield,
   ChevronRight, Bell, CheckCircle, TrendingUp, CreditCard, AlertCircle,
-  ClipboardCheck, User, Search, Loader2, Sun, Moon, BarChart2,
+  ClipboardCheck, User, Search, Loader2, Sun, Moon, BarChart2, MessageSquare,
 } from "lucide-react";
 
 interface NavItem {
@@ -38,6 +38,7 @@ interface SearchResult {
 const navItems: NavItem[] = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { label: "Vetting Requests", href: "/vetting-requests", icon: ClipboardList },
+  { label: "Messages", href: "/messages", icon: MessageSquare },
   { label: "My Staff", href: "/staff", icon: UserCog },
   { label: "Workers", href: "/workers", icon: Users },
   { label: "Reports", href: "/reports", icon: FileText },
@@ -324,15 +325,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               >
                 <item.icon className="w-4 h-4 shrink-0" />
                 {item.label}
-                {msgUnread > 0 && item.href === "/vetting-requests" && (
+                {msgUnread > 0 && item.href === "/messages" && (
                   <span className="ml-auto flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold leading-none">
                     {msgUnread > 99 ? "99+" : msgUnread}
                   </span>
                 )}
-                {active && msgUnread === 0 && item.href === "/vetting-requests" && (
-                  <ChevronRight className="w-3 h-3 ml-auto opacity-60" />
-                )}
-                {active && item.href !== "/vetting-requests" && (
+                {active && !(msgUnread > 0 && item.href === "/messages") && (
                   <ChevronRight className="w-3 h-3 ml-auto opacity-60" />
                 )}
               </Link>

@@ -86,6 +86,78 @@ router.patch("/vetting-requests/:id/messages/read", requireAuth, async (req: Aut
   res.json({ ok: true });
 });
 
+// GET /messages/threads — list all request threads with latest message and unread count
+router.get("/messages/threads", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  const isEmployer = req.userRole === "employer";
+
+  const rows = await db
+    .select({
+      msg: messagesTable,
+      requestId: vettingRequestsTable.id,
+      workerName: vettingRequestsTable.workerName,
+      workerRole: vettingRequestsTable.workerRole,
+      requestStatus: vettingRequestsTable.status,
+      employerName: usersTable.name,
+      employerId: vettingRequestsTable.employerId,
+    })
+    .from(messagesTable)
+    .innerJoin(vettingRequestsTable, eq(messagesTable.requestId, vettingRequestsTable.id))
+    .innerJoin(usersTable, eq(usersTable.id, vettingRequestsTable.employerId))
+    .where(isEmployer ? eq(vettingRequestsTable.employerId, req.userId!) : undefined)
+    .orderBy(asc(messagesTable.createdAt));
+
+  // Group by requestId in JS
+  const threadMap = new Map<number, {
+    requestId: number;
+    workerName: string;
+    workerRole: string;
+    requestStatus: string;
+    employerName: string;
+    employerId: number;
+    messages: (typeof messagesTable.$inferSelect)[];
+  }>();
+
+  for (const row of rows) {
+    if (!threadMap.has(row.requestId)) {
+      threadMap.set(row.requestId, {
+        requestId: row.requestId,
+        workerName: row.workerName,
+        workerRole: row.workerRole,
+        requestStatus: row.requestStatus,
+        employerName: row.employerName,
+        employerId: row.employerId,
+        messages: [],
+      });
+    }
+    threadMap.get(row.requestId)!.messages.push(row.msg);
+  }
+
+  const recipientRoles = isEmployer ? ["ops", "admin"] : ["employer"];
+
+  const threads = Array.from(threadMap.values())
+    .map(t => {
+      const last = t.messages[t.messages.length - 1];
+      const unread = t.messages.filter(m => !m.isRead && recipientRoles.includes(m.role)).length;
+      return {
+        requestId: t.requestId,
+        workerName: t.workerName,
+        workerRole: t.workerRole,
+        requestStatus: t.requestStatus,
+        employerName: t.employerName,
+        employerId: t.employerId,
+        lastMessageBody: last.body,
+        lastMessageSender: last.senderName,
+        lastMessageRole: last.role,
+        lastMessageAt: last.createdAt.toISOString(),
+        unreadCount: unread,
+        totalMessages: t.messages.length,
+      };
+    })
+    .sort((a, b) => new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime());
+
+  res.json({ threads });
+});
+
 // GET /messages/unread-count — total unread messages across all the caller's requests
 router.get("/messages/unread-count", requireAuth, async (req: AuthRequest, res): Promise<void> => {
   let count = 0;

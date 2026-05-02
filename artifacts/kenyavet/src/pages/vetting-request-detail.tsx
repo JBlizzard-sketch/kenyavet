@@ -2,10 +2,10 @@ import { useEffect, useState, useRef } from "react";
 import { useParams, useLocation, Link } from "wouter";
 import AppLayout from "@/components/layout/AppLayout";
 import { useAuth } from "@/lib/auth";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, API_BASE } from "@/lib/api";
 import { formatDate, formatKsh, getStatusColor, getStatusLabel, getTrustScoreBg, getTrustScoreLabel } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
-import { ArrowLeft, CheckCircle, Clock, XCircle, AlertCircle, FileText, Shield, Smartphone, X, Loader2, Phone, UserCheck, Trash2, MessageSquare, Send } from "lucide-react";
+import { ArrowLeft, CheckCircle, Clock, XCircle, AlertCircle, FileText, Shield, Smartphone, X, Loader2, Phone, UserCheck, Trash2, MessageSquare, Send, Paperclip, Upload, Download, File } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface Message {
@@ -15,6 +15,19 @@ interface Message {
   role: string;
   senderName: string;
   body: string;
+  createdAt: string;
+}
+
+interface DocRecord {
+  id: number;
+  requestId: number;
+  uploadedBy: number;
+  uploaderRole: string;
+  fileName: string;
+  fileSize: number;
+  mimeType: string;
+  objectPath: string;
+  label: string | null;
   createdAt: string;
 }
 
@@ -256,6 +269,11 @@ export default function VettingRequestDetail() {
   const [msgSending, setMsgSending] = useState(false);
   const msgBottomRef = useRef<HTMLDivElement>(null);
 
+  const [documents, setDocuments] = useState<DocRecord[]>([]);
+  const [docUploading, setDocUploading] = useState(false);
+  const [deletingDocId, setDeletingDocId] = useState<number | null>(null);
+  const docInputRef = useRef<HTMLInputElement>(null);
+
   async function loadMessages() {
     if (!id) return;
     try {
@@ -287,6 +305,65 @@ export default function VettingRequestDetail() {
     }
   }
 
+  async function loadDocuments() {
+    if (!id) return;
+    try {
+      const data = await apiFetch<{ documents: DocRecord[] }>(`/vetting-requests/${id}/documents`, { token });
+      setDocuments(data.documents);
+    } catch { /* silently ignore */ }
+  }
+
+  async function handleDocUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    setDocUploading(true);
+    try {
+      // Step 1: get presigned URL from API
+      const uploadRes = await fetch(`${API_BASE}/storage/uploads/request-url`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ name: file.name, size: file.size, contentType: file.type || "application/octet-stream" }),
+      });
+      if (!uploadRes.ok) throw new Error("Failed to get upload URL");
+      const { uploadURL, objectPath } = await uploadRes.json() as { uploadURL: string; objectPath: string };
+
+      // Step 2: upload directly to GCS
+      const putRes = await fetch(uploadURL, {
+        method: "PUT",
+        body: file,
+        headers: { "Content-Type": file.type || "application/octet-stream" },
+      });
+      if (!putRes.ok) throw new Error("Upload to storage failed");
+
+      // Step 3: register document in DB
+      await apiFetch(`/vetting-requests/${id}/documents`, {
+        method: "POST", token,
+        body: { fileName: file.name, fileSize: file.size, mimeType: file.type || "application/octet-stream", objectPath },
+      });
+
+      toast({ title: "Document uploaded", description: file.name });
+      loadDocuments();
+    } catch (err) {
+      toast({ title: "Upload failed", description: err instanceof Error ? err.message : "Please try again.", variant: "destructive" });
+    } finally {
+      setDocUploading(false);
+    }
+  }
+
+  async function handleDocDelete(docId: number) {
+    setDeletingDocId(docId);
+    try {
+      await apiFetch(`/vetting-requests/${id}/documents/${docId}`, { method: "DELETE", token, body: {} });
+      setDocuments(prev => prev.filter(d => d.id !== docId));
+      toast({ title: "Document removed" });
+    } catch {
+      toast({ title: "Failed to remove document", variant: "destructive" });
+    } finally {
+      setDeletingDocId(null);
+    }
+  }
+
   async function load() {
     try {
       const data = await apiFetch<RequestDetail>(`/vetting-requests/${id}`, { token });
@@ -298,7 +375,7 @@ export default function VettingRequestDetail() {
     }
   }
 
-  useEffect(() => { load(); loadMessages(); }, [id, token]);
+  useEffect(() => { load(); loadMessages(); loadDocuments(); }, [id, token]);
 
   function handlePaymentSuccess() {
     setShowPayment(false);
@@ -581,6 +658,96 @@ export default function VettingRequestDetail() {
                       {msgSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                     </Button>
                   </form>
+                </div>
+              </div>
+            )}
+
+            {/* Documents */}
+            {req.status !== "pending_payment" && (
+              <div className="bg-card rounded-xl border border-card-border">
+                <div className="flex items-center gap-2 px-5 py-4 border-b border-border">
+                  <Paperclip className="w-4 h-4 text-primary" />
+                  <h2 className="font-semibold text-foreground text-sm">Documents</h2>
+                  {documents.length > 0 && (
+                    <span className="ml-auto text-xs text-muted-foreground">{documents.length} file{documents.length !== 1 ? "s" : ""}</span>
+                  )}
+                  <input
+                    ref={docInputRef}
+                    type="file"
+                    className="hidden"
+                    accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                    onChange={handleDocUpload}
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="ml-auto gap-1.5 h-7 text-xs px-2.5"
+                    disabled={docUploading}
+                    onClick={() => docInputRef.current?.click()}
+                  >
+                    {docUploading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />}
+                    {docUploading ? "Uploading…" : "Upload"}
+                  </Button>
+                </div>
+                <div className="px-5 py-4">
+                  {documents.length === 0 ? (
+                    <div className="text-center py-5 flex flex-col items-center gap-2">
+                      <Paperclip className="w-7 h-7 text-muted-foreground/30" />
+                      <p className="text-sm text-muted-foreground">No documents attached yet.</p>
+                      <p className="text-xs text-muted-foreground">Upload ID scans, reference letters, or other supporting documents (PDF, JPG, PNG, DOC).</p>
+                    </div>
+                  ) : (
+                    <ul className="space-y-2">
+                      {documents.map(doc => {
+                        const sizeKb = Math.round(doc.fileSize / 1024);
+                        const isOwn = doc.uploadedBy === user?.id;
+                        const isOpsDoc = doc.uploaderRole === "ops" || doc.uploaderRole === "admin";
+                        return (
+                          <li key={doc.id} className="flex items-center gap-3 py-2 border-b border-border last:border-0">
+                            <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center shrink-0">
+                              <File className="w-4 h-4 text-muted-foreground" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-foreground truncate">{doc.fileName}</p>
+                              <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                                <span>{sizeKb > 1024 ? `${(sizeKb / 1024).toFixed(1)} MB` : `${sizeKb} KB`}</span>
+                                <span>·</span>
+                                {isOpsDoc && !isOwn && (
+                                  <span className="px-1 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-medium">KenyaVet</span>
+                                )}
+                                <span>{new Date(doc.createdAt).toLocaleDateString("en-KE", { day: "numeric", month: "short" })}</span>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <a
+                                href={`${API_BASE}/storage${doc.objectPath}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                download={doc.fileName}
+                                className="p-1.5 rounded-md hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+                                title="Download"
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                              </a>
+                              {(isOwn || user?.role !== "employer") && (
+                                <button
+                                  onClick={() => handleDocDelete(doc.id)}
+                                  disabled={deletingDocId === doc.id}
+                                  className="p-1.5 rounded-md hover:bg-red-50 hover:text-red-600 transition-colors text-muted-foreground disabled:opacity-40"
+                                  title="Delete"
+                                >
+                                  {deletingDocId === doc.id
+                                    ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    : <Trash2 className="w-3.5 h-3.5" />
+                                  }
+                                </button>
+                              )}
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
                 </div>
               </div>
             )}
