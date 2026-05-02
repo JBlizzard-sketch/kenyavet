@@ -1,13 +1,14 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import AppLayout from "@/components/layout/AppLayout";
 import { useAuth } from "@/lib/auth";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, API_BASE } from "@/lib/api";
 import { toast } from "@/hooks/use-toast";
 import { formatDate, formatKsh, getStatusColor, getStatusLabel, getTrustScoreBg } from "@/lib/utils";
 import {
   CheckCircle, Clock, XCircle, AlertCircle, X, ChevronRight,
   User, MapPin, Phone, Package, Loader2, RefreshCw, Search,
   ClipboardCheck, Zap, FileText, Flag, BarChart2, TrendingUp, Target, Award,
+  Paperclip, Upload, Download, File, Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -56,6 +57,19 @@ interface OpsRequest {
   updatedAt: string;
   steps: Step[];
   references: RefContact[];
+}
+
+interface DocRecord {
+  id: number;
+  requestId: number;
+  uploadedBy: number;
+  uploaderRole: string;
+  fileName: string;
+  fileSize: number;
+  mimeType: string;
+  objectPath: string;
+  label: string | null;
+  createdAt: string;
 }
 
 interface AdminRequest {
@@ -584,6 +598,172 @@ function ReportBuilder({ detail, token, onCompleted }: {
   );
 }
 
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+const DOC_LABELS = [
+  "DCI Certificate",
+  "ID Scan",
+  "Reference Letter",
+  "Police Clearance",
+  "Address Verification",
+  "Social Media Report",
+  "Other",
+];
+
+function OpsDocumentsPanel({ requestId, token }: { requestId: number; token: string | null }) {
+  const [docs, setDocs] = useState<DocRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [label, setLabel] = useState(DOC_LABELS[0]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const loadDocs = useCallback(async () => {
+    try {
+      const data = await apiFetch<{ documents: DocRecord[] }>(`/vetting-requests/${requestId}/documents`, { token });
+      setDocs(data.documents ?? []);
+    } catch {
+      setDocs([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [requestId, token]);
+
+  useEffect(() => { loadDocs(); }, [loadDocs]);
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    setUploading(true);
+    try {
+      const urlRes = await apiFetch<{ uploadUrl: string; objectPath: string }>(
+        "/storage/uploads/request-url",
+        { method: "POST", token, body: { fileName: file.name, mimeType: file.type, prefix: "uploads" } }
+      );
+      await fetch(urlRes.uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+      await apiFetch(`/vetting-requests/${requestId}/documents`, {
+        method: "POST", token,
+        body: { fileName: file.name, fileSize: file.size, mimeType: file.type, objectPath: urlRes.objectPath, label },
+      });
+      toast({ title: "Document uploaded" });
+      await loadDocs();
+    } catch {
+      toast({ title: "Upload failed", variant: "destructive" });
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleDelete = async (docId: number) => {
+    setDeletingId(docId);
+    try {
+      await apiFetch(`/vetting-requests/${requestId}/documents/${docId}`, { method: "DELETE", token });
+      setDocs(prev => prev.filter(d => d.id !== docId));
+      toast({ title: "Document removed" });
+    } catch {
+      toast({ title: "Failed to delete document", variant: "destructive" });
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  return (
+    <div>
+      <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-1.5">
+        <Paperclip className="w-3 h-3" /> Documents
+        {docs.length > 0 && (
+          <span className="ml-1 text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">
+            {docs.length}
+          </span>
+        )}
+      </h3>
+
+      <input ref={fileInputRef} type="file" className="hidden" onChange={handleUpload} />
+
+      <div className="flex gap-2 mb-3">
+        <select
+          value={label}
+          onChange={e => setLabel(e.target.value)}
+          className="flex-1 text-xs px-2.5 py-1.5 rounded-lg border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+        >
+          {DOC_LABELS.map(l => <option key={l} value={l}>{l}</option>)}
+        </select>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-8 px-3 text-xs gap-1.5 shrink-0"
+          disabled={uploading}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          {uploading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />}
+          {uploading ? "Uploading…" : "Upload"}
+        </Button>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-4">
+          <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+        </div>
+      ) : docs.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-border p-3 text-xs text-muted-foreground text-center">
+          No documents yet — upload DCI certificates, ID scans, or other evidence
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          {docs.map(doc => (
+            <div key={doc.id} className="flex items-center gap-2 p-2.5 rounded-lg border border-border bg-muted/20 hover:bg-muted/40 transition-colors">
+              <File className="w-4 h-4 text-muted-foreground shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-medium text-foreground truncate">{doc.fileName}</p>
+                <div className="flex items-center gap-2 mt-0.5">
+                  {doc.label && (
+                    <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">{doc.label}</span>
+                  )}
+                  {doc.uploaderRole !== "employer" && (
+                    <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full">KenyaVet</span>
+                  )}
+                  {doc.uploaderRole === "employer" && (
+                    <span className="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-full">Employer</span>
+                  )}
+                  <span className="text-[10px] text-muted-foreground">{formatFileSize(doc.fileSize)}</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <a
+                  href={`${API_BASE}/storage${doc.objectPath}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                  title="Download"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                </a>
+                <button
+                  disabled={deletingId === doc.id}
+                  onClick={() => handleDelete(doc.id)}
+                  className="p-1.5 rounded-md hover:bg-red-50 text-muted-foreground hover:text-red-600 transition-colors disabled:opacity-50"
+                  title="Delete"
+                >
+                  {deletingId === doc.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function OpsDrawer({
   requestId, token, onClose, onUpdated,
 }: {
@@ -747,6 +927,9 @@ function OpsDrawer({
                 </Button>
               </div>
             </div>
+
+            {/* Documents */}
+            <OpsDocumentsPanel requestId={detail.id} token={token} />
 
             {/* Report builder */}
             {detail.status !== "completed" ? (
