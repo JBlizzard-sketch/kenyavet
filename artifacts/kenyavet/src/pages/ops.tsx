@@ -8,7 +8,7 @@ import {
   CheckCircle, Clock, XCircle, AlertCircle, X, ChevronRight,
   User, MapPin, Phone, Package, Loader2, RefreshCw, Search,
   ClipboardCheck, Zap, FileText, Flag, BarChart2, TrendingUp, Target, Award,
-  Paperclip, Upload, Download, File, Trash2,
+  Paperclip, Upload, Download, File, Trash2, LayoutGrid, Play,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -128,6 +128,98 @@ function getSlaInfo(req: AdminRequest): { label: string; urgent: boolean; overdu
   if (diffMs < 0) return { label: `Overdue by ${Math.abs(diffH)}h`, urgent: true, overdue: true };
   if (diffH <= 6) return { label: `Due in ${diffH}h`, urgent: true, overdue: false };
   return { label: `Due in ${diffH}h`, urgent: false, overdue: false };
+}
+
+const KANBAN_COLUMNS = [
+  { key: "pending_payment", label: "Awaiting Payment", dot: "bg-amber-400", border: "border-amber-200", head: "bg-amber-50 dark:bg-amber-900/20" },
+  { key: "in_progress",     label: "In Progress",      dot: "bg-blue-500",  border: "border-blue-200",  head: "bg-blue-50 dark:bg-blue-900/20"  },
+  { key: "completed",       label: "Completed",        dot: "bg-emerald-500", border: "border-emerald-200", head: "bg-emerald-50 dark:bg-emerald-900/20" },
+  { key: "cancelled",       label: "Cancelled",        dot: "bg-slate-400", border: "border-slate-200", head: "bg-slate-50 dark:bg-slate-900/20" },
+];
+
+function KanbanCard({
+  req, onSelect, onStartVetting,
+}: { req: AdminRequest; onSelect: (id: number) => void; onStartVetting: (id: number) => void }) {
+  const sla = getSlaInfo(req);
+  return (
+    <div
+      onClick={() => onSelect(req.id)}
+      className="bg-card rounded-xl border border-card-border p-3 cursor-pointer hover:shadow-sm hover:border-primary/30 transition-all"
+    >
+      <div className="flex items-start justify-between gap-1 mb-0.5">
+        <p className="font-semibold text-sm text-foreground leading-tight">{req.workerName}</p>
+        <span className="text-[10px] text-muted-foreground shrink-0 bg-muted px-1.5 py-0.5 rounded-full capitalize">{req.packageSlug}</span>
+      </div>
+      <p className="text-xs text-muted-foreground mb-2">{req.workerRole}</p>
+
+      <div className="flex items-center gap-1 text-[10px] text-muted-foreground mb-0.5">
+        <User className="w-3 h-3 shrink-0" />
+        <span className="truncate">{req.employerName}</span>
+      </div>
+      {req.employerNeighbourhood && (
+        <div className="flex items-center gap-1 text-[10px] text-muted-foreground mb-1">
+          <MapPin className="w-3 h-3 shrink-0" />
+          <span className="truncate">{req.employerNeighbourhood}</span>
+        </div>
+      )}
+
+      {sla.label && (
+        <span className={`mt-1 inline-block text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${
+          sla.overdue ? "bg-red-100 text-red-700" : sla.urgent ? "bg-amber-100 text-amber-700" : "bg-blue-50 text-blue-600"
+        }`}>{sla.label}</span>
+      )}
+
+      {req.trustScore != null && (
+        <div className="mt-1">
+          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${getTrustScoreBg(req.trustScore)}`}>
+            Score: {req.trustScore}/100
+          </span>
+        </div>
+      )}
+
+      {req.status === "pending_payment" && (
+        <button
+          onClick={e => { e.stopPropagation(); onStartVetting(req.id); }}
+          className="mt-2 w-full text-[11px] bg-primary text-primary-foreground hover:bg-primary/90 font-medium px-2 py-1.5 rounded-md transition-colors flex items-center justify-center gap-1"
+        >
+          <Play className="w-3 h-3" /> Start Vetting
+        </button>
+      )}
+
+      <p className="text-[10px] text-muted-foreground/50 mt-2">{formatDate(req.createdAt)}</p>
+    </div>
+  );
+}
+
+function KanbanBoard({
+  requests, onSelect, onStartVetting,
+}: { requests: AdminRequest[]; onSelect: (id: number) => void; onStartVetting: (id: number) => void }) {
+  return (
+    <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+      {KANBAN_COLUMNS.map(col => {
+        const cards = requests.filter(r => r.status === col.key);
+        return (
+          <div key={col.key} className="flex flex-col min-w-0">
+            <div className={`flex items-center gap-2 px-3 py-2 rounded-t-xl border border-b-0 ${col.border} ${col.head}`}>
+              <span className={`w-2 h-2 rounded-full shrink-0 ${col.dot}`} />
+              <span className="text-xs font-semibold text-foreground truncate">{col.label}</span>
+              <span className="ml-auto text-xs font-medium text-muted-foreground">{cards.length}</span>
+            </div>
+            <div className={`flex-1 space-y-2 p-2 rounded-b-xl border ${col.border} bg-muted/20 min-h-[400px]`}>
+              {cards.map(req => (
+                <KanbanCard key={req.id} req={req} onSelect={onSelect} onStartVetting={onStartVetting} />
+              ))}
+              {cards.length === 0 && (
+                <div className="flex items-center justify-center h-20 text-xs text-muted-foreground/40 select-none">
+                  No requests
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 const stepStatusIcon: Record<string, React.ElementType> = {
@@ -1118,13 +1210,14 @@ export default function Ops() {
   const [statusFilter, setStatusFilter] = useState<string>("in_progress");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<number | null>(null);
-  const [activeView, setActiveView] = useState<"queue" | "analytics">("queue");
+  const [activeView, setActiveView] = useState<"queue" | "analytics" | "kanban">("queue");
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
+      const queryStatus = activeView === "kanban" ? "all" : statusFilter;
       const data = await apiFetch<{ requests: AdminRequest[] }>(
-        `/admin/requests?status=${statusFilter}`,
+        `/admin/requests?status=${queryStatus}`,
         { token }
       );
       setRequests(data.requests);
@@ -1133,9 +1226,19 @@ export default function Ops() {
     } finally {
       setLoading(false);
     }
-  }, [token, statusFilter]);
+  }, [token, statusFilter, activeView]);
 
-  useEffect(() => { if (activeView === "queue") load(); }, [load, activeView]);
+  useEffect(() => { if (activeView !== "analytics") load(); }, [load, activeView]);
+
+  const startVetting = useCallback(async (id: number) => {
+    try {
+      await apiFetch(`/admin/requests/${id}/status`, { method: "PATCH", token, body: { status: "in_progress" } });
+      toast({ title: "Vetting started", description: "Request moved to In Progress." });
+      load();
+    } catch {
+      toast({ title: "Failed to start vetting", variant: "destructive" });
+    }
+  }, [token, load]);
 
   const filtered = requests.filter(r =>
     r.workerName.toLowerCase().includes(search.toLowerCase()) ||
@@ -1182,6 +1285,16 @@ export default function Ops() {
                 <ClipboardCheck className="w-3.5 h-3.5" /> Queue
               </button>
               <button
+                onClick={() => setActiveView("kanban")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                  activeView === "kanban"
+                    ? "bg-white text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <LayoutGrid className="w-3.5 h-3.5" /> Board
+              </button>
+              <button
                 onClick={() => setActiveView("analytics")}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
                   activeView === "analytics"
@@ -1192,7 +1305,7 @@ export default function Ops() {
                 <BarChart2 className="w-3.5 h-3.5" /> Analytics
               </button>
             </div>
-            {activeView === "queue" && (
+            {(activeView === "queue" || activeView === "kanban") && (
               <Button variant="outline" size="sm" className="gap-2" onClick={load} disabled={loading}>
                 <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
                 Refresh
@@ -1203,6 +1316,12 @@ export default function Ops() {
 
         {activeView === "analytics" ? (
           <OpsAnalyticsPanel token={token} />
+        ) : activeView === "kanban" ? (
+          loading ? (
+            <div className="py-16 text-center text-muted-foreground text-sm">Loading board…</div>
+          ) : (
+            <KanbanBoard requests={requests} onSelect={setSelected} onStartVetting={startVetting} />
+          )
         ) : (
           <>
             {/* Status tabs */}
