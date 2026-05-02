@@ -29,6 +29,8 @@ router.get("/admin/requests", requireAuth, requireRole("admin", "ops"), async (r
       workerPhone: r.vr.workerPhone,
       workerEmail: r.vr.workerEmail,
       packageName: r.pkg?.name ?? "",
+      packageSlug: r.pkg?.slug ?? "",
+      turnaroundHours: r.pkg?.turnaroundHours ?? 48,
       priceKsh: r.pkg?.priceKsh ?? 0,
       status: r.vr.status,
       trustScore: r.vr.trustScore,
@@ -522,6 +524,42 @@ router.get("/admin/stats", requireAuth, requireRole("admin", "ops"), async (_req
     pendingPayment: allRequests.filter(r => r.status === "pending_payment").length,
     totalRevenue: await totalRevenue,
     totalUsers: Number(totalUsers),
+  });
+});
+
+router.get("/admin/employers", requireAuth, requireRole("admin", "ops"), async (_req, res): Promise<void> => {
+  const employers = await db
+    .select()
+    .from(usersTable)
+    .where(eq(usersTable.role, "employer"))
+    .orderBy(desc(usersTable.createdAt));
+
+  const allRequests = await db
+    .select({ vr: vettingRequestsTable, pkg: vettingPackagesTable })
+    .from(vettingRequestsTable)
+    .leftJoin(vettingPackagesTable, eq(vettingRequestsTable.packageId, vettingPackagesTable.id));
+
+  res.json({
+    employers: employers.map(emp => {
+      const empReqs = allRequests.filter(r => r.vr.employerId === emp.id);
+      const paidReqs = empReqs.filter(r => r.vr.status !== "pending_payment" && r.vr.status !== "cancelled");
+      const totalSpend = paidReqs.reduce((sum, r) => sum + (r.pkg?.priceKsh ?? 0), 0);
+      const lastRequest = empReqs.sort((a, b) => b.vr.createdAt.getTime() - a.vr.createdAt.getTime())[0];
+      return {
+        id: emp.id,
+        name: emp.name,
+        email: emp.email,
+        phone: emp.phone,
+        neighbourhood: emp.neighbourhood,
+        createdAt: emp.createdAt.toISOString(),
+        totalRequests: empReqs.length,
+        completedRequests: empReqs.filter(r => r.vr.status === "completed").length,
+        pendingRequests: empReqs.filter(r => r.vr.status === "pending_payment").length,
+        inProgressRequests: empReqs.filter(r => r.vr.status === "in_progress").length,
+        totalSpendKsh: totalSpend,
+        lastRequestAt: lastRequest ? lastRequest.vr.createdAt.toISOString() : null,
+      };
+    }),
   });
 });
 

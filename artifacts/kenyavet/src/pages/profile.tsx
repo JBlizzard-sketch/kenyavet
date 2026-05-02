@@ -2,6 +2,7 @@ import { useState } from "react";
 import AppLayout from "@/components/layout/AppLayout";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
+import { toast } from "@/hooks/use-toast";
 import { User, Phone, MapPin, Mail, Shield, Save, CheckCircle, Lock, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -47,8 +48,10 @@ export default function Profile() {
         login(token, updated as any);
       }
       setSaved(true);
+      toast({ title: "Profile saved", description: "Your details have been updated." });
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to save changes");
+      toast({ title: "Failed to save profile", variant: "destructive" });
     } finally {
       setSaving(false);
     }
@@ -73,8 +76,10 @@ export default function Profile() {
       });
       setPwSaved(true);
       setPwForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
+      toast({ title: "Password updated", description: "Your new password is active." });
     } catch (err: unknown) {
       setPwError(err instanceof Error ? err.message : "Failed to update password");
+      toast({ title: "Failed to update password", variant: "destructive" });
     } finally {
       setPwSaving(false);
     }

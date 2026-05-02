@@ -4,7 +4,8 @@ import AppLayout from "@/components/layout/AppLayout";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import { formatDate, formatKsh, getStatusColor, getStatusLabel, getTrustScoreBg, getTrustScoreLabel } from "@/lib/utils";
-import { ArrowLeft, CheckCircle, Clock, XCircle, AlertCircle, FileText, Shield, Smartphone, X, Loader2, Phone, UserCheck } from "lucide-react";
+import { toast } from "@/hooks/use-toast";
+import { ArrowLeft, CheckCircle, Clock, XCircle, AlertCircle, FileText, Shield, Smartphone, X, Loader2, Phone, UserCheck, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface VettingStep {
@@ -237,6 +238,8 @@ export default function VettingRequestDetail() {
   const [req, setReq] = useState<RequestDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [showPayment, setShowPayment] = useState(false);
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
 
   async function load() {
     try {
@@ -254,6 +257,20 @@ export default function VettingRequestDetail() {
   function handlePaymentSuccess() {
     setShowPayment(false);
     load();
+  }
+
+  async function handleCancel() {
+    setCancelling(true);
+    try {
+      await apiFetch(`/vetting-requests/${id}/cancel`, { method: "POST", token, body: {} });
+      toast({ title: "Request cancelled", description: "Your vetting request has been cancelled." });
+      load();
+    } catch (e: unknown) {
+      toast({ title: "Failed to cancel", description: e instanceof Error ? e.message : "Please try again.", variant: "destructive" });
+    } finally {
+      setCancelling(false);
+      setConfirmCancel(false);
+    }
   }
 
   if (loading) {
@@ -308,13 +325,47 @@ export default function VettingRequestDetail() {
                     <p className="text-sm text-amber-700">
                       Pay <span className="font-bold">{formatKsh(req.priceKsh)}</span> via M-Pesa to start background verification for {req.workerName}.
                     </p>
-                    <Button
-                      className="mt-3 bg-emerald-600 hover:bg-emerald-700 text-white gap-2"
-                      onClick={() => setShowPayment(true)}
-                    >
-                      <Smartphone className="w-4 h-4" />
-                      Pay with M-Pesa — {formatKsh(req.priceKsh)}
-                    </Button>
+                    <div className="flex items-center gap-3 mt-3 flex-wrap">
+                      <Button
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2"
+                        onClick={() => setShowPayment(true)}
+                      >
+                        <Smartphone className="w-4 h-4" />
+                        Pay with M-Pesa — {formatKsh(req.priceKsh)}
+                      </Button>
+                      {!confirmCancel ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-muted-foreground gap-1.5 hover:text-red-600"
+                          onClick={() => setConfirmCancel(true)}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" /> Cancel Request
+                        </Button>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-red-700 font-medium">Cancel this request?</span>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            className="h-7 px-3 text-xs gap-1"
+                            onClick={handleCancel}
+                            disabled={cancelling}
+                          >
+                            {cancelling ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                            Yes, cancel
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 px-3 text-xs"
+                            onClick={() => setConfirmCancel(false)}
+                          >
+                            Keep
+                          </Button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>

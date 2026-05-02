@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import AppLayout from "@/components/layout/AppLayout";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
+import { toast } from "@/hooks/use-toast";
 import { formatDate, formatKsh, getStatusColor, getStatusLabel, getTrustScoreBg } from "@/lib/utils";
 import {
   CheckCircle, Clock, XCircle, AlertCircle, X, ChevronRight,
@@ -63,11 +64,26 @@ interface AdminRequest {
   workerRole: string;
   status: string;
   packageName: string;
+  packageSlug: string;
+  turnaroundHours: number;
   trustScore: number | null;
   adminNotes: string | null;
   employerName: string;
   employerNeighbourhood: string | null;
   createdAt: string;
+  updatedAt: string;
+}
+
+function getSlaInfo(req: AdminRequest): { label: string; urgent: boolean; overdue: boolean } {
+  if (req.status !== "in_progress") return { label: "", urgent: false, overdue: false };
+  const paidAt = new Date(req.updatedAt).getTime();
+  const dueAt = paidAt + req.turnaroundHours * 60 * 60 * 1000;
+  const now = Date.now();
+  const diffMs = dueAt - now;
+  const diffH = Math.round(diffMs / (60 * 60 * 1000));
+  if (diffMs < 0) return { label: `Overdue by ${Math.abs(diffH)}h`, urgent: true, overdue: true };
+  if (diffH <= 6) return { label: `Due in ${diffH}h`, urgent: true, overdue: false };
+  return { label: `Due in ${diffH}h`, urgent: false, overdue: false };
 }
 
 const stepStatusIcon: Record<string, React.ElementType> = {
@@ -110,7 +126,10 @@ function StepRow({
         body: { status, notes: notes || undefined },
       });
       onUpdated();
-    } catch {}
+      toast({ title: status === "completed" ? "Step marked complete" : status === "failed" ? "Step marked failed" : "Step updated" });
+    } catch {
+      toast({ title: "Failed to update step", variant: "destructive" });
+    }
     finally { setSaving(false); }
   }
 
@@ -239,7 +258,10 @@ function RefCallCard({ contact: refContact, token, onUpdated }: { contact: RefCo
         body: { callStatus, callSummary },
       });
       onUpdated();
-    } catch {} finally { setSaving(false); }
+      toast({ title: "Reference saved", description: `${refContact.name} — ${CALL_STATUSES.find(s => s.value === callStatus)?.label ?? callStatus}` });
+    } catch {
+      toast({ title: "Failed to save reference", variant: "destructive" });
+    } finally { setSaving(false); }
   }
 
   return (
@@ -370,8 +392,9 @@ function ReportBuilder({ detail, token, onCompleted }: {
           flags,
         },
       });
+      toast({ title: "Report published", description: "Employer has been notified by email." });
       onCompleted();
-    } catch { setError("Failed to publish report. Please try again."); }
+    } catch { setError("Failed to publish report. Please try again."); toast({ title: "Failed to publish report", variant: "destructive" }); }
     finally { setSubmitting(false); }
   }
 
@@ -684,7 +707,10 @@ function OpsDrawer({
                       await apiFetch(`/admin/requests/${detail.id}/notes`, {
                         method: "PATCH", token, body: { adminNotes },
                       });
-                    } catch {}
+                      toast({ title: "Notes saved" });
+                    } catch {
+                      toast({ title: "Failed to save notes", variant: "destructive" });
+                    }
                   }}
                 >
                   Save Notes
@@ -833,6 +859,21 @@ export default function Ops() {
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className="font-semibold text-foreground text-sm">{req.workerName}</p>
                     <span className="text-xs text-muted-foreground">{req.workerRole}</span>
+                    {(() => {
+                      const sla = getSlaInfo(req);
+                      if (!sla.label) return null;
+                      return (
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${
+                          sla.overdue
+                            ? "bg-red-100 text-red-700"
+                            : sla.urgent
+                            ? "bg-amber-100 text-amber-700"
+                            : "bg-blue-50 text-blue-600"
+                        }`}>
+                          {sla.label}
+                        </span>
+                      );
+                    })()}
                   </div>
                   <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground flex-wrap">
                     <span className="flex items-center gap-1">

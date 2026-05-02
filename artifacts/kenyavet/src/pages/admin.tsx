@@ -3,6 +3,7 @@ import { Link } from "wouter";
 import AppLayout from "@/components/layout/AppLayout";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
+import { toast } from "@/hooks/use-toast";
 import { formatDate, formatKsh, getStatusColor, getStatusLabel, getTrustScoreBg } from "@/lib/utils";
 import {
   Users, ClipboardList, Shield, Search,
@@ -67,6 +68,21 @@ interface AdminStats {
   totalUsers: number;
 }
 
+interface EmployerRecord {
+  id: number;
+  name: string;
+  email: string;
+  phone: string | null;
+  neighbourhood: string | null;
+  createdAt: string;
+  totalRequests: number;
+  completedRequests: number;
+  pendingRequests: number;
+  inProgressRequests: number;
+  totalSpendKsh: number;
+  lastRequestAt: string | null;
+}
+
 function DetailDrawer({
   req,
   token,
@@ -83,50 +99,48 @@ function DetailDrawer({
   const [savingNotes, setSavingNotes] = useState(false);
   const [savingReport, setSavingReport] = useState(false);
   const [notifying, setNotifying] = useState(false);
-  const [notifyMsg, setNotifyMsg] = useState("");
-  const [savedNotes, setSavedNotes] = useState(false);
-  const [savedReport, setSavedReport] = useState(false);
 
   async function saveNotes() {
     setSavingNotes(true);
-    setSavedNotes(false);
     try {
       await apiFetch(`/admin/requests/${req.id}/notes`, {
         method: "PATCH", token,
         body: { adminNotes: notes },
       });
-      setSavedNotes(true);
       onUpdated();
-    } catch {}
+      toast({ title: "Notes saved" });
+    } catch {
+      toast({ title: "Failed to save notes", variant: "destructive" });
+    }
     finally { setSavingNotes(false); }
   }
 
   async function saveReport() {
     if (!req.reportId) return;
     setSavingReport(true);
-    setSavedReport(false);
     const score = parseInt(trustOverride, 10);
     try {
       await apiFetch(`/admin/reports/${req.reportId}`, {
         method: "PATCH", token,
         body: { overallTrustScore: isNaN(score) ? undefined : score },
       });
-      setSavedReport(true);
       onUpdated();
-    } catch {}
+      toast({ title: "Trust score updated" });
+    } catch {
+      toast({ title: "Failed to update trust score", variant: "destructive" });
+    }
     finally { setSavingReport(false); }
   }
 
   async function notifyEmployer() {
     setNotifying(true);
-    setNotifyMsg("");
     try {
       const res = await apiFetch<{ sent: boolean; message: string }>(`/admin/requests/${req.id}/notify`, {
         method: "POST", token, body: {},
       });
-      setNotifyMsg(res.message);
+      toast({ title: "Email sent", description: res.message });
     } catch (e: any) {
-      setNotifyMsg(e.message || "Failed to notify");
+      toast({ title: "Failed to send email", description: e.message || "Unknown error", variant: "destructive" });
     }
     finally { setNotifying(false); }
   }
@@ -205,8 +219,7 @@ function DetailDrawer({
                   {savingReport ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
                   Save
                 </Button>
-                {savedReport && <span className="text-xs text-emerald-600 flex items-center gap-1"><CheckCircle className="w-3.5 h-3.5" /> Saved</span>}
-              </div>
+                </div>
               <Link href={`/reports?requestId=${req.id}`} className="inline-block mt-2 text-xs text-blue-600 hover:underline">
                 View full report →
               </Link>
@@ -228,7 +241,6 @@ function DetailDrawer({
                 {savingNotes ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
                 Save Notes
               </Button>
-              {savedNotes && <span className="text-xs text-emerald-600 flex items-center gap-1"><CheckCircle className="w-3.5 h-3.5" /> Saved</span>}
             </div>
           </div>
 
@@ -248,9 +260,6 @@ function DetailDrawer({
                   : <Bell className="w-3.5 h-3.5" />}
                 Re-send Report Email
               </Button>
-              {notifyMsg && (
-                <p className="text-xs text-gray-500 mt-2 bg-gray-50 px-3 py-2 rounded-lg">{notifyMsg}</p>
-              )}
             </div>
           )}
         </div>
@@ -277,9 +286,10 @@ export default function Admin() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [updatingId, setUpdatingId] = useState<number | null>(null);
   const [drawer, setDrawer] = useState<AdminRequest | null>(null);
-  const [activeTab, setActiveTab] = useState<"requests" | "analytics" | "reports">("requests");
+  const [activeTab, setActiveTab] = useState<"requests" | "analytics" | "reports" | "employers">("requests");
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
   const [reports, setReports] = useState<AdminReport[]>([]);
+  const [employers, setEmployers] = useState<EmployerRecord[]>([]);
 
   async function load() {
     try {
@@ -307,9 +317,17 @@ export default function Admin() {
     } catch {}
   }
 
+  async function loadEmployers() {
+    try {
+      const data = await apiFetch<{ employers: EmployerRecord[] }>("/admin/employers", { token });
+      setEmployers(data.employers);
+    } catch {}
+  }
+
   useEffect(() => { load(); }, [token]);
   useEffect(() => { if (activeTab === "analytics") loadAnalytics(); }, [activeTab, token]);
   useEffect(() => { if (activeTab === "reports") loadReports(); }, [activeTab, token]);
+  useEffect(() => { if (activeTab === "employers") loadEmployers(); }, [activeTab, token]);
 
   async function updateStatus(id: number, status: string) {
     setUpdatingId(id);
@@ -319,7 +337,10 @@ export default function Admin() {
         body: { status },
       });
       await load();
-    } catch {}
+      toast({ title: "Status updated", description: `Request #${id} → ${getStatusLabel(status)}` });
+    } catch {
+      toast({ title: "Failed to update status", variant: "destructive" });
+    }
     finally { setUpdatingId(null); }
   }
 
@@ -364,8 +385,8 @@ export default function Admin() {
             <h1 className="text-2xl font-serif font-bold text-foreground">Admin Panel</h1>
             <p className="text-muted-foreground text-sm mt-0.5">Manage all vetting requests and operations</p>
           </div>
-          <div className="flex gap-2">
-            {(["requests", "analytics", "reports"] as const).map(tab => (
+          <div className="flex gap-2 flex-wrap">
+            {(["requests", "analytics", "reports", "employers"] as const).map(tab => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -375,8 +396,14 @@ export default function Admin() {
                     : "bg-muted text-muted-foreground hover:bg-muted/80"
                 }`}
               >
-                {tab === "requests" ? <ClipboardList className="w-3.5 h-3.5" /> : tab === "analytics" ? <BarChart3 className="w-3.5 h-3.5" /> : <FileText className="w-3.5 h-3.5" />}
-                {tab === "requests" ? "Requests" : tab === "analytics" ? "Analytics" : "Reports"}
+                {tab === "requests" ? <ClipboardList className="w-3.5 h-3.5" />
+                  : tab === "analytics" ? <BarChart3 className="w-3.5 h-3.5" />
+                  : tab === "reports" ? <FileText className="w-3.5 h-3.5" />
+                  : <Users className="w-3.5 h-3.5" />}
+                {tab === "requests" ? "Requests"
+                  : tab === "analytics" ? "Analytics"
+                  : tab === "reports" ? "Reports"
+                  : "Employers"}
               </button>
             ))}
           </div>
@@ -686,6 +713,92 @@ export default function Admin() {
           )}
         </div>
         </>
+        )}
+
+        {/* Employers tab */}
+        {activeTab === "employers" && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-muted-foreground">
+                {employers.length} registered employer{employers.length !== 1 ? "s" : ""}
+              </p>
+            </div>
+            {employers.length === 0 ? (
+              <div className="py-16 text-center text-muted-foreground text-sm">
+                <Users className="w-8 h-8 mx-auto mb-3 opacity-30" />
+                No employer accounts registered yet.
+              </div>
+            ) : (
+              <div className="bg-card rounded-xl border border-card-border overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border bg-muted/40">
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">Employer</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground hidden sm:table-cell">Location</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">Requests</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground hidden md:table-cell">Total Spend</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground hidden lg:table-cell">Joined</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground hidden lg:table-cell">Last Request</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {employers.map(emp => (
+                        <tr key={emp.id} className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors">
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                                <span className="text-primary text-xs font-bold">{emp.name.charAt(0)}</span>
+                              </div>
+                              <div>
+                                <p className="font-medium text-foreground">{emp.name}</p>
+                                <p className="text-xs text-muted-foreground">{emp.email}</p>
+                                {emp.phone && <p className="text-xs text-muted-foreground">{emp.phone}</p>}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 hidden sm:table-cell">
+                            <span className="text-xs text-muted-foreground">{emp.neighbourhood ?? "—"}</span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex flex-col gap-0.5">
+                              <span className="text-sm font-semibold text-foreground">{emp.totalRequests}</span>
+                              <div className="flex gap-1.5 flex-wrap">
+                                {emp.completedRequests > 0 && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-medium">
+                                    {emp.completedRequests} done
+                                  </span>
+                                )}
+                                {emp.inProgressRequests > 0 && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">
+                                    {emp.inProgressRequests} active
+                                  </span>
+                                )}
+                                {emp.pendingRequests > 0 && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">
+                                    {emp.pendingRequests} pending
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 hidden md:table-cell">
+                            <span className="text-sm font-semibold text-foreground">{formatKsh(emp.totalSpendKsh)}</span>
+                          </td>
+                          <td className="px-4 py-3 hidden lg:table-cell text-xs text-muted-foreground">
+                            {formatDate(emp.createdAt)}
+                          </td>
+                          <td className="px-4 py-3 hidden lg:table-cell text-xs text-muted-foreground">
+                            {emp.lastRequestAt ? formatDate(emp.lastRequestAt) : "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
         )}
       </div>
     </AppLayout>

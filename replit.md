@@ -127,6 +127,14 @@ All under `/api`:
 - Workers page: 300ms debounced search input (prevents API hammering on every keystroke); `setLoading(true)` on filter change for correct loading state
 - Workers API (`GET /workers`): fixed multi-condition query bug — was always using only `conditions[0]`; now correctly uses `and(...conditions)` when multiple filters (role + query + minScore) are combined
 - Staff page: re-vetting overdue/due-soon banner above the roster with red (overdue) or amber (within 60 days) styling and "Schedule Re-Vetting" CTA; StaffCard now shows exact renewal date and differentiates "overdue" (red) from "due soon" (amber)
+- Toast notifications: shadcn `toast()` wired into every mutating action across ops, admin, staff, and profile pages — step updates, reference saves, report publish, notes save, status changes, staff add/roster/status, profile save, password change all fire success/destructive toasts; removed now-redundant inline "Saved" text from admin DetailDrawer
 - Employer detail page: read-only reference section shows call status badges and summaries once ops has called
 - `GET /vetting-requests/:id` now returns `references[]` and `stepProgress` (completed/total counts)
 - `GET /vetting-requests` list shows mini step progress bar for in_progress requests
+- **Phase 11 — Request cancellation, Admin Employers tab, Ops SLA urgency:**
+  - `POST /vetting-requests/:id/cancel` — employer-scoped cancel; only allowed on `pending_payment` status; returns 400 with clear message for any other status
+  - Vetting request detail page: "Cancel Request" ghost button appears below the Pay button for `pending_payment` requests; shows inline confirmation ("Cancel this request? / Yes, cancel / Keep") with spinner; fires success/destructive toast
+  - `GET /admin/employers` — role-guarded (admin/ops) endpoint returning all employer accounts with per-employer stats: `totalRequests`, `completedRequests`, `pendingRequests`, `inProgressRequests`, `totalSpendKsh`, `lastRequestAt`
+  - Admin panel: new "Employers" tab alongside Requests/Analytics/Reports; shows full employer table (name/email/phone, neighbourhood, request counts with coloured badge breakdowns, total spend, joined date, last request date)
+  - `GET /admin/requests` now returns `turnaroundHours` (from joined `vettingPackagesTable`) and `packageSlug` per request
+  - Ops queue: `getSlaInfo()` helper computes SLA from `updatedAt` (paid-at proxy) + `turnaroundHours`; each queue card shows colour-coded SLA pill — blue "Due in Xh" (>6h), amber "Due in Xh" (≤6h urgent), red "Overdue by Xh"

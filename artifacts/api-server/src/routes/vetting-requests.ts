@@ -147,6 +147,29 @@ router.get("/vetting-requests/:id", requireAuth, async (req: AuthRequest, res): 
   });
 });
 
+router.post("/vetting-requests/:id/cancel", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ message: "Invalid ID" }); return; }
+
+  const [vr] = await db
+    .select()
+    .from(vettingRequestsTable)
+    .where(and(eq(vettingRequestsTable.id, id), eq(vettingRequestsTable.employerId, req.userId!)));
+
+  if (!vr) { res.status(404).json({ message: "Request not found" }); return; }
+  if (vr.status !== "pending_payment") {
+    res.status(400).json({ message: "Only requests awaiting payment can be cancelled" });
+    return;
+  }
+
+  const [updated] = await db.update(vettingRequestsTable)
+    .set({ status: "cancelled" })
+    .where(eq(vettingRequestsTable.id, id))
+    .returning();
+
+  res.json({ id: updated.id, status: updated.status });
+});
+
 router.patch("/vetting-requests/:id", requireAuth, async (req: AuthRequest, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ message: "Invalid ID" }); return; }

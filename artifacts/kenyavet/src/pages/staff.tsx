@@ -3,6 +3,7 @@ import { Link } from "wouter";
 import AppLayout from "@/components/layout/AppLayout";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
+import { toast } from "@/hooks/use-toast";
 import { formatDate, getTrustScoreBg } from "@/lib/utils";
 import { Plus, UserCog, Shield, Phone, QrCode, CalendarClock, CheckCircle2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -81,8 +82,10 @@ export default function Staff() {
       setShowAdd(false);
       setForm({ workerName: "", role: "", phone: "", startDate: "", notes: "" });
       loadStaff();
+      toast({ title: "Staff member added", description: `${form.workerName} added to your roster.` });
     } catch (err: any) {
       setError(err.message || "Failed to add staff member");
+      toast({ title: "Failed to add staff member", variant: "destructive" });
     } finally {
       setSaving(false);
     }
@@ -93,8 +96,9 @@ export default function Staff() {
     try {
       await apiFetch(`/staff/from-request/${reqId}`, { method: "POST", token, body: {} });
       loadStaff();
+      toast({ title: "Added to roster", description: "Worker has been added to your staff list." });
     } catch (err: any) {
-      alert(err.message || "Failed to add to roster");
+      toast({ title: "Failed to add to roster", description: err.message || "Please try again.", variant: "destructive" });
     } finally {
       setAddingFromReq(null);
     }
@@ -104,7 +108,10 @@ export default function Staff() {
     try {
       await apiFetch(`/staff/${id}`, { method: "PATCH", token, body: { status } });
       loadStaff();
-    } catch {}
+      toast({ title: status === "active" ? "Staff member reactivated" : "Staff member marked inactive" });
+    } catch {
+      toast({ title: "Failed to update status", variant: "destructive" });
+    }
   }
 
   const active = staff.filter(s => s.status === "active");
