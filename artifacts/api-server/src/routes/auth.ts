@@ -4,6 +4,7 @@ import jwt from "jsonwebtoken";
 import { db, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { RegisterUserBody, LoginUserBody } from "@workspace/api-zod";
+import { requireAuth, type AuthRequest } from "../lib/auth-middleware";
 
 const router: IRouter = Router();
 
@@ -11,6 +12,18 @@ const JWT_SECRET = process.env.SESSION_SECRET ?? "kenyavet-secret-dev";
 
 function signToken(userId: number, role: string): string {
   return jwt.sign({ userId, role }, JWT_SECRET, { expiresIn: "7d" });
+}
+
+function formatUser(user: typeof usersTable.$inferSelect) {
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    phone: user.phone,
+    neighbourhood: user.neighbourhood,
+    createdAt: user.createdAt.toISOString(),
+  };
 }
 
 router.post("/auth/register", async (req, res): Promise<void> => {
@@ -33,10 +46,7 @@ router.post("/auth/register", async (req, res): Promise<void> => {
   }).returning();
 
   const token = signToken(user.id, user.role);
-  res.status(201).json({
-    user: { id: user.id, email: user.email, name: user.name, role: user.role, phone: user.phone, neighbourhood: user.neighbourhood, createdAt: user.createdAt.toISOString() },
-    token,
-  });
+  res.status(201).json({ user: formatUser(user), token });
 });
 
 router.post("/auth/login", async (req, res): Promise<void> => {
@@ -57,36 +67,36 @@ router.post("/auth/login", async (req, res): Promise<void> => {
     return;
   }
   const token = signToken(user.id, user.role);
-  res.json({
-    user: { id: user.id, email: user.email, name: user.name, role: user.role, phone: user.phone, neighbourhood: user.neighbourhood, createdAt: user.createdAt.toISOString() },
-    token,
-  });
+  res.json({ user: formatUser(user), token });
 });
 
 router.post("/auth/logout", async (_req, res): Promise<void> => {
   res.sendStatus(204);
 });
 
-router.get("/auth/me", async (req, res): Promise<void> => {
-  const auth = req.headers.authorization;
-  if (!auth?.startsWith("Bearer ")) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-  const token = auth.slice(7);
-  let payload: { userId: number; role: string };
-  try {
-    payload = jwt.verify(token, JWT_SECRET) as { userId: number; role: string };
-  } catch {
-    res.status(401).json({ error: "Invalid token" });
-    return;
-  }
-  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, payload.userId));
+router.get("/auth/me", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.userId!));
   if (!user) {
     res.status(401).json({ error: "User not found" });
     return;
   }
-  res.json({ id: user.id, email: user.email, name: user.name, role: user.role, phone: user.phone, neighbourhood: user.neighbourhood, createdAt: user.createdAt.toISOString() });
+  res.json(formatUser(user));
+});
+
+router.patch("/auth/me/update", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  const { name, phone, neighbourhood } = req.body;
+  const update: Record<string, unknown> = {};
+  if (name) update.name = name;
+  if (phone !== undefined) update.phone = phone || null;
+  if (neighbourhood !== undefined) update.neighbourhood = neighbourhood || null;
+
+  const [user] = await db.update(usersTable)
+    .set(update)
+    .where(eq(usersTable.id, req.userId!))
+    .returning();
+
+  if (!user) { res.status(404).json({ error: "User not found" }); return; }
+  res.json(formatUser(user));
 });
 
 export default router;

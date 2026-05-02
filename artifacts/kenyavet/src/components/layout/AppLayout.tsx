@@ -154,9 +154,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               <p className="text-sidebar-foreground/50 text-xs capitalize">{user?.role}</p>
             </div>
           </div>
+          <Link
+            href="/profile"
+            onClick={() => setSidebarOpen(false)}
+            className="mt-1 w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+          >
+            <User className="w-4 h-4" />
+            My Profile
+          </Link>
           <button
             onClick={logout}
-            className="mt-1 w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+            className="mt-0.5 w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
           >
             <LogOut className="w-4 h-4" />
             Sign out

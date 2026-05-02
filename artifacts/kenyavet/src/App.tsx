@@ -16,6 +16,7 @@ import Staff from "@/pages/staff";
 import Reports from "@/pages/reports";
 import Admin from "@/pages/admin";
 import Verify from "@/pages/verify";
+import Profile from "@/pages/profile";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient({
@@ -59,6 +60,9 @@ function Router() {
       </Route>
       <Route path="/admin">
         {() => <PrivateRoute component={Admin} />}
+      </Route>
+      <Route path="/profile">
+        {() => <PrivateRoute component={Profile} />}
       </Route>
 
       <Route component={NotFound} />
