@@ -4,11 +4,12 @@ import AppLayout from "@/components/layout/AppLayout";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import { formatDate, getTrustScoreBg } from "@/lib/utils";
-import { Plus, UserCog, Shield, Phone, QrCode } from "lucide-react";
+import { Plus, UserCog, Shield, Phone, QrCode, CalendarClock, CheckCircle2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import QrCard from "@/components/QrCard";
 
 interface StaffRecord {
   id: number;
@@ -19,6 +20,16 @@ interface StaffRecord {
   trustScore: number | null;
   status: string;
   notes: string | null;
+  renewalDueAt: string | null;
+  createdAt: string;
+}
+
+interface CompletedRequest {
+  id: number;
+  workerName: string;
+  workerRole: string;
+  trustScore: number | null;
+  reportId: number | null;
   createdAt: string;
 }
 
@@ -27,16 +38,23 @@ const roles = ["Housekeeper", "Driver", "Nanny", "Cook", "Gardener", "Security G
 export default function Staff() {
   const { token } = useAuth();
   const [staff, setStaff] = useState<StaffRecord[]>([]);
+  const [completedRequests, setCompletedRequests] = useState<CompletedRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ workerName: "", role: "", phone: "", startDate: "", notes: "" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [addingFromReq, setAddingFromReq] = useState<number | null>(null);
+  const [qrTarget, setQrTarget] = useState<StaffRecord | null>(null);
 
   async function loadStaff() {
     try {
-      const data = await apiFetch<{ staff: StaffRecord[] }>("/staff", { token });
-      setStaff(data.staff);
+      const [staffData, reqData] = await Promise.all([
+        apiFetch<{ staff: StaffRecord[] }>("/staff", { token }),
+        apiFetch<{ requests: CompletedRequest[] }>("/vetting-requests?status=completed", { token }).catch(() => ({ requests: [] })),
+      ]);
+      setStaff(staffData.staff);
+      setCompletedRequests(reqData.requests ?? []);
     } catch {
       setStaff([]);
     } finally {
@@ -54,15 +72,11 @@ export default function Staff() {
     setError("");
     try {
       await apiFetch("/staff", {
-        method: "POST",
-        token,
-        body: JSON.stringify({
-          workerName: form.workerName,
-          role: form.role,
-          phone: form.phone || null,
-          startDate: form.startDate || null,
-          notes: form.notes || null,
-        }),
+        method: "POST", token,
+        body: {
+          workerName: form.workerName, role: form.role,
+          phone: form.phone || null, startDate: form.startDate || null, notes: form.notes || null,
+        },
       });
       setShowAdd(false);
       setForm({ workerName: "", role: "", phone: "", startDate: "", notes: "" });
@@ -74,9 +88,21 @@ export default function Staff() {
     }
   }
 
+  async function addFromRequest(reqId: number) {
+    setAddingFromReq(reqId);
+    try {
+      await apiFetch(`/staff/from-request/${reqId}`, { method: "POST", token, body: {} });
+      loadStaff();
+    } catch (err: any) {
+      alert(err.message || "Failed to add to roster");
+    } finally {
+      setAddingFromReq(null);
+    }
+  }
+
   async function updateStatus(id: number, status: string) {
     try {
-      await apiFetch(`/staff/${id}`, { method: "PATCH", token, body: JSON.stringify({ status }) });
+      await apiFetch(`/staff/${id}`, { method: "PATCH", token, body: { status } });
       loadStaff();
     } catch {}
   }
@@ -84,8 +110,34 @@ export default function Staff() {
   const active = staff.filter(s => s.status === "active");
   const inactive = staff.filter(s => s.status !== "active");
 
+  // Completed requests not yet in staff roster
+  const staffedRequestIds = new Set<number>(); // We don't have vettingRequestId on staff yet so show all
+  const unrosteredRequests = completedRequests.filter(r =>
+    !staff.some(s => s.workerName === r.workerName && s.role === r.workerRole)
+  );
+
+  // Find completed request for QR (match by name+role)
+  function getReportForStaff(member: StaffRecord): CompletedRequest | undefined {
+    return completedRequests.find(r => r.workerName === member.workerName && r.workerRole === member.role && r.reportId != null);
+  }
+
   return (
     <AppLayout>
+      {qrTarget && (() => {
+        const req = getReportForStaff(qrTarget);
+        if (!req?.reportId) return null;
+        return (
+          <QrCard
+            reportId={req.reportId}
+            workerName={qrTarget.workerName}
+            workerRole={qrTarget.role}
+            trustScore={qrTarget.trustScore ?? 0}
+            generatedDate={qrTarget.createdAt}
+            onClose={() => setQrTarget(null)}
+          />
+        );
+      })()}
+
       <div className="p-6 max-w-5xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <div>
@@ -97,10 +149,52 @@ export default function Staff() {
           </Button>
         </div>
 
-        {/* Add form */}
+        {/* Add from completed requests banner */}
+        {unrosteredRequests.length > 0 && (
+          <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 mb-6">
+            <p className="text-sm font-semibold text-emerald-800 mb-3 flex items-center gap-1.5">
+              <CheckCircle2 className="w-4 h-4" />
+              {unrosteredRequests.length} vetted worker{unrosteredRequests.length !== 1 ? "s" : ""} ready to add to your roster
+            </p>
+            <div className="space-y-2">
+              {unrosteredRequests.map(req => (
+                <div key={req.id} className="flex items-center justify-between bg-white rounded-lg border border-emerald-100 px-4 py-2.5">
+                  <div className="flex items-center gap-3">
+                    <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                      <span className="text-primary text-xs font-bold">{req.workerName.charAt(0)}</span>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-foreground">{req.workerName}</p>
+                      <p className="text-xs text-muted-foreground">{req.workerRole}</p>
+                    </div>
+                    {req.trustScore != null && (
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${getTrustScoreBg(req.trustScore)}`}>
+                        {req.trustScore}/100
+                      </span>
+                    )}
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5 text-xs border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                    disabled={addingFromReq === req.id}
+                    onClick={() => addFromRequest(req.id)}
+                  >
+                    {addingFromReq === req.id
+                      ? <Loader2 className="w-3 h-3 animate-spin" />
+                      : <Plus className="w-3 h-3" />}
+                    Add to Roster
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Manual add form */}
         {showAdd && (
           <div className="bg-card rounded-xl border border-card-border p-6 mb-6">
-            <h2 className="font-semibold text-foreground mb-4">Add Staff Member</h2>
+            <h2 className="font-semibold text-foreground mb-4">Add Staff Member Manually</h2>
             {error && <div className="bg-red-50 text-red-700 text-sm px-4 py-2.5 rounded-lg border border-red-100 mb-4">{error}</div>}
             <form onSubmit={handleAdd} className="grid sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
@@ -145,53 +239,93 @@ export default function Staff() {
             <Button size="sm" className="mt-4" onClick={() => setShowAdd(true)}>Add first staff member</Button>
           </div>
         ) : (
-          <div className="space-y-3">
-            {staff.map(member => (
-              <div key={member.id} className="bg-card rounded-xl border border-card-border p-4 flex items-center gap-4">
-                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                  <span className="text-primary font-bold text-sm">{member.workerName.charAt(0)}</span>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="font-semibold text-foreground text-sm">{member.workerName}</p>
-                    {member.status === "active" ? (
-                      <span className="text-xs px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full">Active</span>
-                    ) : (
-                      <span className="text-xs px-2 py-0.5 bg-muted text-muted-foreground rounded-full">{member.status}</span>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap gap-x-3 text-xs text-muted-foreground mt-0.5">
-                    <span>{member.role}</span>
-                    {member.phone && <span className="flex items-center gap-1"><Phone className="w-3 h-3" />{member.phone}</span>}
-                    {member.startDate && <span>Since {formatDate(member.startDate)}</span>}
-                    {member.trustScore != null && (
-                      <span className={`px-1.5 py-0.5 rounded-full font-semibold ${getTrustScoreBg(member.trustScore)}`}>
-                        Score: {member.trustScore}
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Link href="/vetting-requests/new">
-                    <Button size="sm" variant="outline" className="gap-1.5 text-xs">
-                      <Shield className="w-3 h-3" /> Re-Vet
-                    </Button>
-                  </Link>
-                  {member.status === "active" ? (
-                    <Button size="sm" variant="outline" className="text-xs" onClick={() => updateStatus(member.id, "inactive")}>
-                      Deactivate
-                    </Button>
-                  ) : (
-                    <Button size="sm" variant="outline" className="text-xs" onClick={() => updateStatus(member.id, "active")}>
-                      Activate
-                    </Button>
-                  )}
+          <>
+            {active.length > 0 && (
+              <div className="mb-6">
+                <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Active Staff</h2>
+                <div className="space-y-3">
+                  {active.map(member => <StaffCard key={member.id} member={member} onStatusChange={updateStatus} onQr={setQrTarget} hasReport={!!getReportForStaff(member)} />)}
                 </div>
               </div>
-            ))}
-          </div>
+            )}
+            {inactive.length > 0 && (
+              <div>
+                <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Inactive</h2>
+                <div className="space-y-3 opacity-70">
+                  {inactive.map(member => <StaffCard key={member.id} member={member} onStatusChange={updateStatus} onQr={setQrTarget} hasReport={!!getReportForStaff(member)} />)}
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
     </AppLayout>
+  );
+}
+
+function StaffCard({ member, onStatusChange, onQr, hasReport }: {
+  member: StaffRecord;
+  onStatusChange: (id: number, status: string) => void;
+  onQr: (m: StaffRecord) => void;
+  hasReport: boolean;
+}) {
+  const renewalSoon = member.renewalDueAt && new Date(member.renewalDueAt) < new Date(Date.now() + 60 * 24 * 60 * 60 * 1000);
+
+  return (
+    <div className="bg-card rounded-xl border border-card-border p-4">
+      <div className="flex items-start gap-4">
+        <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
+          <span className="text-primary font-bold text-sm">{member.workerName.charAt(0)}</span>
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="font-semibold text-foreground text-sm">{member.workerName}</p>
+            {member.status === "active" ? (
+              <span className="text-xs px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full">Active</span>
+            ) : (
+              <span className="text-xs px-2 py-0.5 bg-muted text-muted-foreground rounded-full">{member.status}</span>
+            )}
+            {member.trustScore != null && (
+              <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${getTrustScoreBg(member.trustScore)}`}>
+                Score: {member.trustScore}
+              </span>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-x-3 text-xs text-muted-foreground mt-1">
+            <span>{member.role}</span>
+            {member.phone && <span className="flex items-center gap-1"><Phone className="w-3 h-3" />{member.phone}</span>}
+            {member.startDate && <span>Since {formatDate(member.startDate)}</span>}
+          </div>
+          {renewalSoon && (
+            <p className="text-xs text-amber-600 flex items-center gap-1 mt-1.5">
+              <CalendarClock className="w-3 h-3" /> Re-vetting due soon
+            </p>
+          )}
+          {member.notes && <p className="text-xs text-muted-foreground mt-1 italic">"{member.notes}"</p>}
+        </div>
+
+        <div className="flex items-center gap-1.5 shrink-0">
+          {hasReport && (
+            <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={() => onQr(member)}>
+              <QrCode className="w-3 h-3" /> QR
+            </Button>
+          )}
+          <Link href="/vetting-requests/new">
+            <Button size="sm" variant="outline" className="gap-1.5 text-xs">
+              <Shield className="w-3 h-3" /> Re-Vet
+            </Button>
+          </Link>
+          {member.status === "active" ? (
+            <Button size="sm" variant="outline" className="text-xs" onClick={() => onStatusChange(member.id, "inactive")}>
+              Deactivate
+            </Button>
+          ) : (
+            <Button size="sm" variant="outline" className="text-xs" onClick={() => onStatusChange(member.id, "active")}>
+              Activate
+            </Button>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }

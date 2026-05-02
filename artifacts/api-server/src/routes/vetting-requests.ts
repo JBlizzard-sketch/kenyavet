@@ -23,12 +23,17 @@ router.get("/vetting-requests", requireAuth, async (req: AuthRequest, res): Prom
   const page = Math.max(1, Number(req.query.page ?? 1));
   const limit = Math.min(50, Math.max(1, Number(req.query.limit ?? 20)));
   const offset = (page - 1) * limit;
+  const statusFilter = req.query.status as string | undefined;
+
+  const baseWhere = statusFilter && statusFilter !== "all"
+    ? and(eq(vettingRequestsTable.employerId, req.userId!), eq(vettingRequestsTable.status, statusFilter))
+    : eq(vettingRequestsTable.employerId, req.userId!);
 
   const rows = await db
     .select({ vr: vettingRequestsTable, pkg: vettingPackagesTable })
     .from(vettingRequestsTable)
     .leftJoin(vettingPackagesTable, eq(vettingRequestsTable.packageId, vettingPackagesTable.id))
-    .where(eq(vettingRequestsTable.employerId, req.userId!))
+    .where(baseWhere)
     .orderBy(desc(vettingRequestsTable.createdAt))
     .limit(limit)
     .offset(offset);
@@ -36,7 +41,7 @@ router.get("/vetting-requests", requireAuth, async (req: AuthRequest, res): Prom
   const [{ total }] = await db
     .select({ total: count() })
     .from(vettingRequestsTable)
-    .where(eq(vettingRequestsTable.employerId, req.userId!));
+    .where(baseWhere);
 
   res.json({
     requests: rows.map(r => formatRequest(r.vr, r.pkg?.name ?? "", r.pkg?.priceKsh ?? 0)),

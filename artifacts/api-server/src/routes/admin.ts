@@ -1,7 +1,8 @@
 import { Router, type IRouter } from "express";
-import { db, vettingRequestsTable, vettingPackagesTable, usersTable, reportsTable, vettingStepsTable, activityItemsTable } from "@workspace/db";
-import { eq, desc, and, count, gte, sql } from "drizzle-orm";
+import { db, vettingRequestsTable, vettingPackagesTable, usersTable, reportsTable, vettingStepsTable, activityItemsTable, staffRecordsTable } from "@workspace/db";
+import { eq, desc, and, count } from "drizzle-orm";
 import { requireAuth, requireRole, type AuthRequest } from "../lib/auth-middleware";
+import { sendReportReadyEmail } from "../lib/email";
 
 const router: IRouter = Router();
 
@@ -24,13 +25,19 @@ router.get("/admin/requests", requireAuth, requireRole("admin", "ops"), async (r
       id: r.vr.id,
       workerName: r.vr.workerName,
       workerRole: r.vr.workerRole,
+      workerIdNumber: r.vr.workerIdNumber,
+      workerPhone: r.vr.workerPhone,
+      workerEmail: r.vr.workerEmail,
       packageName: r.pkg?.name ?? "",
       priceKsh: r.pkg?.priceKsh ?? 0,
       status: r.vr.status,
       trustScore: r.vr.trustScore,
+      reportId: r.vr.reportId,
+      adminNotes: (r.vr as any).adminNotes ?? null,
       employerName: r.emp?.name ?? "",
       employerEmail: r.emp?.email ?? "",
       employerPhone: r.emp?.phone ?? null,
+      employerNeighbourhood: r.emp?.neighbourhood ?? null,
       createdAt: r.vr.createdAt.toISOString(),
       updatedAt: r.vr.updatedAt.toISOString(),
     })),
@@ -105,9 +112,95 @@ router.patch("/admin/requests/:id/status", requireAuth, requireRole("admin", "op
       workerName: vr.workerName,
       linkId: vr.id,
     });
+
+    // Auto-send email notification
+    const [emp] = await db.select().from(usersTable).where(eq(usersTable.id, vr.employerId));
+    if (emp) {
+      await sendReportReadyEmail({
+        employerName: emp.name,
+        employerEmail: emp.email,
+        workerName: vr.workerName,
+        workerRole: vr.workerRole,
+        trustScore: score,
+        recommendation: score >= 80 ? "hire" : score >= 60 ? "caution" : "do_not_hire",
+        reportId: report.id,
+        requestId: vr.id,
+      });
+    }
   }
 
   res.json({ id: vr.id, status: vr.status, message: "Status updated" });
+});
+
+router.patch("/admin/requests/:id/notes", requireAuth, requireRole("admin", "ops"), async (req: AuthRequest, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ message: "Invalid ID" }); return; }
+
+  const { adminNotes } = req.body;
+  const [vr] = await db.update(vettingRequestsTable)
+    .set({ adminNotes } as any)
+    .where(eq(vettingRequestsTable.id, id))
+    .returning();
+  if (!vr) { res.status(404).json({ message: "Not found" }); return; }
+  res.json({ id: vr.id, message: "Notes saved" });
+});
+
+router.patch("/admin/reports/:id", requireAuth, requireRole("admin", "ops"), async (req: AuthRequest, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ message: "Invalid ID" }); return; }
+
+  const { overallTrustScore, summary, socialMediaSummary, referencesSummary, scoreBreakdown } = req.body;
+  const update: Record<string, unknown> = {};
+  if (overallTrustScore != null) update.overallTrustScore = Number(overallTrustScore);
+  if (summary != null) update.summary = summary;
+  if (socialMediaSummary != null) update.socialMediaSummary = socialMediaSummary;
+  if (referencesSummary != null) update.referencesSummary = referencesSummary;
+  if (scoreBreakdown != null) update.scoreBreakdown = scoreBreakdown;
+
+  const [report] = await db.update(reportsTable)
+    .set(update)
+    .where(eq(reportsTable.id, id))
+    .returning();
+  if (!report) { res.status(404).json({ message: "Report not found" }); return; }
+
+  // Sync trust score back to vetting request
+  if (overallTrustScore != null) {
+    await db.update(vettingRequestsTable)
+      .set({ trustScore: Number(overallTrustScore) })
+      .where(eq(vettingRequestsTable.reportId, id));
+  }
+
+  res.json({ id: report.id, message: "Report updated" });
+});
+
+router.post("/admin/requests/:id/notify", requireAuth, requireRole("admin", "ops"), async (req: AuthRequest, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ message: "Invalid ID" }); return; }
+
+  const [row] = await db
+    .select({ vr: vettingRequestsTable, emp: usersTable, r: reportsTable })
+    .from(vettingRequestsTable)
+    .leftJoin(usersTable, eq(vettingRequestsTable.employerId, usersTable.id))
+    .leftJoin(reportsTable, eq(reportsTable.id, vettingRequestsTable.reportId))
+    .where(eq(vettingRequestsTable.id, id));
+
+  if (!row || !row.emp || !row.r) {
+    res.status(404).json({ message: "Request or report not found" });
+    return;
+  }
+
+  const sent = await sendReportReadyEmail({
+    employerName: row.emp.name,
+    employerEmail: row.emp.email,
+    workerName: row.vr.workerName,
+    workerRole: row.vr.workerRole,
+    trustScore: row.r.overallTrustScore,
+    recommendation: row.r.overallTrustScore >= 80 ? "hire" : row.r.overallTrustScore >= 60 ? "caution" : "do_not_hire",
+    reportId: row.r.id,
+    requestId: row.vr.id,
+  });
+
+  res.json({ sent, message: sent ? "Email sent successfully" : "Email logged (SMTP not configured)" });
 });
 
 router.get("/admin/stats", requireAuth, requireRole("admin", "ops"), async (_req, res): Promise<void> => {

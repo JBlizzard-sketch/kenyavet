@@ -4,8 +4,9 @@ import AppLayout from "@/components/layout/AppLayout";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import { formatDate, getTrustScoreBg, getTrustScoreLabel } from "@/lib/utils";
-import { FileText, Printer, Shield, AlertCircle, CheckCircle, Download } from "lucide-react";
+import { FileText, Printer, Shield, AlertCircle, CheckCircle, QrCode } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import QrCard from "@/components/QrCard";
 
 interface ScoreBreakdown {
   identity: number | null;
@@ -188,6 +189,7 @@ function PrintableReport({ report }: { report: Report }) {
 
 function ReportDetail({ report }: { report: Report }) {
   const breakdown = report.scoreBreakdown;
+  const [showQr, setShowQr] = useState(false);
   const recommendationConfig = {
     hire: { label: "✓ Safe to Hire", color: "text-emerald-800", bg: "bg-emerald-50 border-emerald-200" },
     caution: { label: "⚠ Proceed with Caution", color: "text-amber-800", bg: "bg-amber-50 border-amber-200" },
@@ -299,13 +301,28 @@ function ReportDetail({ report }: { report: Report }) {
           </div>
         )}
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <Button variant="outline" size="sm" className="gap-2" onClick={handlePrint}>
-            <Printer className="w-4 h-4" /> Print / Save PDF
+            <Printer className="w-4 h-4" /> Print / PDF
           </Button>
-          <p className="text-xs text-muted-foreground">Report generated {formatDate(report.createdAt)}</p>
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => setShowQr(true)}>
+            <QrCode className="w-4 h-4" /> QR Card
+          </Button>
+          <p className="text-xs text-muted-foreground ml-auto">Report generated {formatDate(report.createdAt)}</p>
         </div>
       </div>
+
+      {showQr && (
+        <QrCard
+          reportId={report.id}
+          workerName={report.workerName}
+          workerRole={report.workerRole}
+          trustScore={report.trustScore}
+          packageName={report.packageName}
+          generatedDate={report.createdAt}
+          onClose={() => setShowQr(false)}
+        />
+      )}
     </>
   );
 }

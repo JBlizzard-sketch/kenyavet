@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { db, staffRecordsTable } from "@workspace/db";
+import { db, staffRecordsTable, vettingRequestsTable, reportsTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { requireAuth, type AuthRequest } from "../lib/auth-middleware";
 
@@ -29,6 +29,55 @@ router.post("/staff", requireAuth, async (req: AuthRequest, res): Promise<void> 
     active: true,
     renewalDueAt: renewalDue,
   }).returning();
+  res.status(201).json(formatStaff(record));
+});
+
+// Add a staff member from a completed vetting request
+router.post("/staff/from-request/:requestId", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  const requestId = parseInt(req.params.requestId as string, 10);
+  if (isNaN(requestId)) { res.status(400).json({ message: "Invalid request ID" }); return; }
+
+  const [row] = await db
+    .select({ vr: vettingRequestsTable, r: reportsTable })
+    .from(vettingRequestsTable)
+    .leftJoin(reportsTable, eq(reportsTable.id, vettingRequestsTable.reportId))
+    .where(and(
+      eq(vettingRequestsTable.id, requestId),
+      eq(vettingRequestsTable.employerId, req.userId!),
+    ));
+
+  if (!row) { res.status(404).json({ message: "Request not found" }); return; }
+  if (row.vr.status !== "completed") {
+    res.status(400).json({ message: "Vetting must be completed before adding to roster" });
+    return;
+  }
+
+  // Check if already in staff
+  const existing = await db.select().from(staffRecordsTable)
+    .where(and(
+      eq(staffRecordsTable.employerId, req.userId!),
+      eq(staffRecordsTable.vettingRequestId, requestId),
+    ));
+  if (existing.length > 0) {
+    res.status(409).json({ message: "Already in staff roster", staff: formatStaff(existing[0]) });
+    return;
+  }
+
+  const renewalDue = new Date();
+  renewalDue.setFullYear(renewalDue.getFullYear() + 1);
+
+  const [record] = await db.insert(staffRecordsTable).values({
+    employerId: req.userId!,
+    name: row.vr.workerName,
+    role: row.vr.workerRole,
+    phone: row.vr.workerPhone,
+    trustScore: row.vr.trustScore,
+    vettingRequestId: requestId,
+    startDate: new Date().toISOString().split("T")[0],
+    active: true,
+    renewalDueAt: renewalDue,
+  }).returning();
+
   res.status(201).json(formatStaff(record));
 });
 
