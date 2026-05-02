@@ -45,13 +45,11 @@ export default function Register() {
     <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-teal-50/30 to-white flex items-center justify-center px-4 py-12">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <Link href="/">
-            <a className="inline-flex items-center gap-2 mb-6">
-              <div className="w-9 h-9 rounded-xl bg-primary flex items-center justify-center">
-                <Shield className="w-5 h-5 text-white" />
-              </div>
-              <span className="font-semibold text-gray-900 text-lg">KenyaVet</span>
-            </a>
+          <Link href="/" className="inline-flex items-center gap-2 mb-6">
+            <div className="w-9 h-9 rounded-xl bg-primary flex items-center justify-center">
+              <Shield className="w-5 h-5 text-white" />
+            </div>
+            <span className="font-semibold text-gray-900 text-lg">KenyaVet</span>
           </Link>
           <h1 className="text-2xl font-serif font-bold text-gray-900">Create your account</h1>
           <p className="text-gray-500 text-sm mt-1">Start vetting your domestic staff today</p>
@@ -101,9 +99,7 @@ export default function Register() {
 
         <p className="text-center text-sm text-gray-500 mt-5">
           Already have an account?{" "}
-          <Link href="/login">
-            <a className="text-primary font-medium hover:underline">Sign in</a>
-          </Link>
+          <Link href="/login" className="text-primary font-medium hover:underline">Sign in</Link>
         </p>
       </div>
     </div>

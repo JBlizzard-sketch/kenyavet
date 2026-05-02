@@ -2,34 +2,30 @@ import { Router, type IRouter } from "express";
 import { db, staffRecordsTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { requireAuth, type AuthRequest } from "../lib/auth-middleware";
-import { AddStaffBody, UpdateStaffBody } from "@workspace/api-zod";
 
 const router: IRouter = Router();
 
 router.get("/staff", requireAuth, async (req: AuthRequest, res): Promise<void> => {
   const records = await db.select().from(staffRecordsTable)
     .where(eq(staffRecordsTable.employerId, req.userId!));
-  res.json(records.map(formatStaff));
+  res.json({ staff: records.map(formatStaff) });
 });
 
 router.post("/staff", requireAuth, async (req: AuthRequest, res): Promise<void> => {
-  const parsed = AddStaffBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
+  const { workerName, role, phone, startDate, notes } = req.body;
+  if (!workerName || !role) {
+    res.status(400).json({ message: "workerName and role are required" });
     return;
   }
-  const d = parsed.data;
   const renewalDue = new Date();
   renewalDue.setFullYear(renewalDue.getFullYear() + 1);
   const [record] = await db.insert(staffRecordsTable).values({
     employerId: req.userId!,
-    name: d.name,
-    role: d.role,
-    startDate: d.startDate,
-    phone: d.phone,
-    photoUrl: d.photoUrl,
-    notes: d.notes,
-    vettingRequestId: d.vettingRequestId,
+    name: workerName,
+    role,
+    startDate: startDate || null,
+    phone: phone || null,
+    notes: notes || null,
     active: true,
     renewalDueAt: renewalDue,
   }).returning();
@@ -37,33 +33,29 @@ router.post("/staff", requireAuth, async (req: AuthRequest, res): Promise<void> 
 });
 
 router.patch("/staff/:id", requireAuth, async (req: AuthRequest, res): Promise<void> => {
-  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-  const id = parseInt(raw, 10);
-  const parsed = UpdateStaffBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
-    return;
-  }
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ message: "Invalid ID" }); return; }
+
   const update: Record<string, unknown> = {};
-  if (parsed.data.name != null) update.name = parsed.data.name;
-  if (parsed.data.role != null) update.role = parsed.data.role;
-  if (parsed.data.phone != null) update.phone = parsed.data.phone;
-  if (parsed.data.notes != null) update.notes = parsed.data.notes;
-  if (parsed.data.active != null) update.active = parsed.data.active;
+  const { workerName, name, role, phone, notes, status, active } = req.body;
+  if (workerName != null) update.name = workerName;
+  if (name != null) update.name = name;
+  if (role != null) update.role = role;
+  if (phone != null) update.phone = phone;
+  if (notes != null) update.notes = notes;
+  if (status != null) update.active = status === "active";
+  if (active != null) update.active = active;
+
   const [record] = await db.update(staffRecordsTable)
     .set(update)
     .where(and(eq(staffRecordsTable.id, id), eq(staffRecordsTable.employerId, req.userId!)))
     .returning();
-  if (!record) {
-    res.status(404).json({ error: "Not found" });
-    return;
-  }
+  if (!record) { res.status(404).json({ message: "Not found" }); return; }
   res.json(formatStaff(record));
 });
 
 router.delete("/staff/:id", requireAuth, async (req: AuthRequest, res): Promise<void> => {
-  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-  const id = parseInt(raw, 10);
+  const id = parseInt(req.params.id as string, 10);
   await db.delete(staffRecordsTable)
     .where(and(eq(staffRecordsTable.id, id), eq(staffRecordsTable.employerId, req.userId!)));
   res.sendStatus(204);
@@ -73,14 +65,12 @@ function formatStaff(s: typeof staffRecordsTable.$inferSelect) {
   return {
     id: s.id,
     employerId: s.employerId,
-    name: s.name,
+    workerName: s.name,
     role: s.role,
     startDate: s.startDate,
     phone: s.phone,
-    photoUrl: s.photoUrl,
     notes: s.notes,
-    active: s.active,
-    vettingRequestId: s.vettingRequestId,
+    status: s.active ? "active" : "inactive",
     trustScore: s.trustScore,
     renewalDueAt: s.renewalDueAt?.toISOString() ?? null,
     createdAt: s.createdAt.toISOString(),

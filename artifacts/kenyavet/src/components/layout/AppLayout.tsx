@@ -7,7 +7,6 @@ import {
   UserCog, Settings, LogOut, Menu, X, Shield,
   ChevronRight, Bell
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 
 interface NavItem {
   label: string;
@@ -26,7 +25,7 @@ const navItems: NavItem[] = [
 ];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const { user, logout, isOps } = useAuth();
+  const { user, logout } = useAuth();
   const [location] = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -61,20 +60,20 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           {visibleItems.map(item => {
             const active = location === item.href || location.startsWith(item.href + "/");
             return (
-              <Link key={item.href} href={item.href}>
-                <a
-                  className={cn(
-                    "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors group",
-                    active
-                      ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                      : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
-                  )}
-                  onClick={() => setSidebarOpen(false)}
-                >
-                  <item.icon className="w-4 h-4 shrink-0" />
-                  {item.label}
-                  {active && <ChevronRight className="w-3 h-3 ml-auto opacity-60" />}
-                </a>
+              <Link
+                key={item.href}
+                href={item.href}
+                className={cn(
+                  "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors group",
+                  active
+                    ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                    : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                )}
+                onClick={() => setSidebarOpen(false)}
+              >
+                <item.icon className="w-4 h-4 shrink-0" />
+                {item.label}
+                {active && <ChevronRight className="w-3 h-3 ml-auto opacity-60" />}
               </Link>
             );
           })}

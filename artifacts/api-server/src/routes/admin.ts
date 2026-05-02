@@ -2,15 +2,14 @@ import { Router, type IRouter } from "express";
 import { db, vettingRequestsTable, vettingPackagesTable, usersTable, reportsTable, vettingStepsTable, activityItemsTable } from "@workspace/db";
 import { eq, desc, and, count, gte, sql } from "drizzle-orm";
 import { requireAuth, requireRole, type AuthRequest } from "../lib/auth-middleware";
-import { UpdateAdminVettingStatusBody, GetAdminQueueQueryParams } from "@workspace/api-zod";
 
 const router: IRouter = Router();
 
-router.get("/admin/queue", requireAuth, requireRole("admin", "ops"), async (req: AuthRequest, res): Promise<void> => {
-  const query = GetAdminQueueQueryParams.safeParse(req.query);
-  const statusFilter = query.success ? query.data.status : undefined;
-
-  const conditions = statusFilter ? [eq(vettingRequestsTable.status, statusFilter)] : [];
+router.get("/admin/requests", requireAuth, requireRole("admin", "ops"), async (req: AuthRequest, res): Promise<void> => {
+  const statusFilter = req.query.status as string | undefined;
+  const conditions = statusFilter && statusFilter !== "all"
+    ? [eq(vettingRequestsTable.status, statusFilter)]
+    : [];
 
   const rows = await db
     .select({ vr: vettingRequestsTable, pkg: vettingPackagesTable, emp: usersTable })
@@ -20,59 +19,43 @@ router.get("/admin/queue", requireAuth, requireRole("admin", "ops"), async (req:
     .where(conditions.length > 0 ? conditions[0] : undefined)
     .orderBy(desc(vettingRequestsTable.createdAt));
 
-  const [{ total }] = await db.select({ total: count() }).from(vettingRequestsTable);
-
-  const statusCounts = {
-    pending_payment: 0, paid: 0, in_progress: 0, completed: 0, cancelled: 0,
-  };
-  const allRows = await db.select({ status: vettingRequestsTable.status, cnt: count() })
-    .from(vettingRequestsTable)
-    .groupBy(vettingRequestsTable.status);
-  for (const row of allRows) {
-    const s = row.status as keyof typeof statusCounts;
-    if (s in statusCounts) statusCounts[s] = Number(row.cnt);
-  }
-
   res.json({
-    items: rows.map(r => ({
+    requests: rows.map(r => ({
       id: r.vr.id,
       workerName: r.vr.workerName,
       workerRole: r.vr.workerRole,
       packageName: r.pkg?.name ?? "",
+      priceKsh: r.pkg?.priceKsh ?? 0,
       status: r.vr.status,
+      trustScore: r.vr.trustScore,
       employerName: r.emp?.name ?? "",
+      employerEmail: r.emp?.email ?? "",
       employerPhone: r.emp?.phone ?? null,
-      priority: r.pkg?.slug === "premium" ? "high" : r.pkg?.slug === "standard" ? "medium" : "normal",
       createdAt: r.vr.createdAt.toISOString(),
       updatedAt: r.vr.updatedAt.toISOString(),
     })),
-    total: Number(total),
-    byStatus: statusCounts,
+    total: rows.length,
   });
 });
 
-router.patch("/admin/vetting-requests/:id/status", requireAuth, requireRole("admin", "ops"), async (req: AuthRequest, res): Promise<void> => {
-  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-  const id = parseInt(raw, 10);
-  const parsed = UpdateAdminVettingStatusBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
-    return;
-  }
-  const update: Record<string, unknown> = { status: parsed.data.status };
-  if (parsed.data.adminNotes != null) update.adminNotes = parsed.data.adminNotes;
-  if (parsed.data.status === "completed") update.completedAt = new Date();
+router.patch("/admin/requests/:id/status", requireAuth, requireRole("admin", "ops"), async (req: AuthRequest, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ message: "Invalid ID" }); return; }
+
+  const { status, adminNotes } = req.body;
+  if (!status) { res.status(400).json({ message: "status is required" }); return; }
+
+  const update: Record<string, unknown> = { status };
+  if (adminNotes != null) update.adminNotes = adminNotes;
+  if (status === "completed") update.completedAt = new Date();
 
   const [vr] = await db.update(vettingRequestsTable)
     .set(update)
     .where(eq(vettingRequestsTable.id, id))
     .returning();
-  if (!vr) {
-    res.status(404).json({ error: "Not found" });
-    return;
-  }
+  if (!vr) { res.status(404).json({ message: "Not found" }); return; }
 
-  if (parsed.data.status === "in_progress") {
+  if (status === "in_progress") {
     await db.update(vettingStepsTable)
       .set({ status: "in_progress" })
       .where(and(eq(vettingStepsTable.vettingRequestId, id), eq(vettingStepsTable.order, 1)));
@@ -85,9 +68,9 @@ router.patch("/admin/vetting-requests/:id/status", requireAuth, requireRole("adm
     });
   }
 
-  if (parsed.data.status === "completed") {
+  if (status === "completed") {
     const [pkg] = await db.select().from(vettingPackagesTable).where(eq(vettingPackagesTable.id, vr.packageId));
-    const score = Math.floor(Math.random() * 30) + 70;
+    const score = Math.floor(Math.random() * 25) + 72;
     const [report] = await db.insert(reportsTable).values({
       vettingRequestId: vr.id,
       workerName: vr.workerName,
@@ -96,17 +79,17 @@ router.patch("/admin/vetting-requests/:id/status", requireAuth, requireRole("adm
       packageName: pkg?.name ?? "",
       overallTrustScore: score,
       scoreBreakdown: {
-        identity: Math.floor(Math.random() * 10) + 20,
-        references: Math.floor(Math.random() * 15) + 20,
-        dciCertificate: Math.floor(Math.random() * 5) + 15,
-        socialMedia: Math.floor(Math.random() * 5) + 8,
-        addressVisit: pkg?.slug === "premium" ? Math.floor(Math.random() * 5) + 10 : null,
+        identity: Math.min(25, Math.floor(Math.random() * 5) + 21),
+        references: Math.min(30, Math.floor(Math.random() * 8) + 22),
+        dciCertificate: Math.min(20, Math.floor(Math.random() * 3) + 17),
+        socialMedia: Math.min(15, Math.floor(Math.random() * 3) + 12),
+        addressVisit: pkg?.slug === "premium" ? Math.min(10, Math.floor(Math.random() * 2) + 8) : null,
       },
-      summary: `Background verification completed for ${vr.workerName}. Identity confirmed via national ID cross-check. ${Math.floor(Math.random() * 2) + 2} employer references contacted and verified. No criminal record found. Social media review clear.`,
+      summary: `Background verification completed for ${vr.workerName}. Identity confirmed via national ID cross-check. ${pkg?.slug === "premium" ? "3" : pkg?.slug === "standard" ? "2" : "1"} employer reference${pkg?.slug === "basic" ? "" : "s"} contacted and verified positive. No criminal record found via DCI certificate check. Social media profile reviewed with no adverse findings.`,
       identityVerified: true,
       dciCertificateStatus: "verified",
       socialMediaSummary: "No adverse findings on social media review.",
-      referencesSummary: "All contacted references gave positive feedback.",
+      referencesSummary: "All contacted references gave positive feedback about work ethic and reliability.",
       flags: [],
     }).returning();
     await db.update(vettingRequestsTable)
@@ -124,39 +107,27 @@ router.patch("/admin/vetting-requests/:id/status", requireAuth, requireRole("adm
     });
   }
 
-  const [pkg] = await db.select().from(vettingPackagesTable).where(eq(vettingPackagesTable.id, vr.packageId));
-  res.json({
-    id: vr.id, employerId: vr.employerId, workerName: vr.workerName, workerPhone: vr.workerPhone,
-    workerIdNumber: vr.workerIdNumber, workerRole: vr.workerRole, packageId: vr.packageId,
-    packageName: pkg?.name ?? "", status: vr.status, trustScore: vr.trustScore,
-    workerPhotoUrl: vr.workerPhotoUrl, workerAddress: vr.workerAddress, notes: vr.notes,
-    reportId: vr.reportId, completedAt: vr.completedAt?.toISOString() ?? null,
-    createdAt: vr.createdAt.toISOString(), updatedAt: vr.updatedAt.toISOString(),
-  });
+  res.json({ id: vr.id, status: vr.status, message: "Status updated" });
 });
 
 router.get("/admin/stats", requireAuth, requireRole("admin", "ops"), async (_req, res): Promise<void> => {
-  const [{ total }] = await db.select({ total: count() }).from(vettingRequestsTable);
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const [{ completedToday }] = await db.select({ completedToday: count() })
-    .from(vettingRequestsTable)
-    .where(and(eq(vettingRequestsTable.status, "completed"), gte(vettingRequestsTable.completedAt, today)));
-  const [{ totalWorkers }] = await db.select({ totalWorkers: count() }).from(reportsTable);
-  const allRequests = await db.select({ pkg: vettingPackagesTable.name, pkg2: vettingPackagesTable.slug })
-    .from(vettingRequestsTable)
-    .leftJoin(vettingPackagesTable, eq(vettingRequestsTable.packageId, vettingPackagesTable.id));
-  const byPackage: Record<string, number> = {};
-  for (const r of allRequests) {
-    const key = r.pkg2 ?? "unknown";
-    byPackage[key] = (byPackage[key] ?? 0) + 1;
-  }
+  const allRequests = await db.select().from(vettingRequestsTable);
+  const [{ totalUsers }] = await db.select({ totalUsers: count() }).from(usersTable);
+
+  const totalRevenue = allRequests.reduce(async (accP, vr) => {
+    const acc = await accP;
+    const [pkg] = await db.select({ priceKsh: vettingPackagesTable.priceKsh })
+      .from(vettingPackagesTable).where(eq(vettingPackagesTable.id, vr.packageId));
+    return acc + (vr.status !== "pending_payment" && vr.status !== "cancelled" ? (pkg?.priceKsh ?? 0) : 0);
+  }, Promise.resolve(0));
+
   res.json({
-    totalRequests: Number(total),
-    completedToday: Number(completedToday),
-    averageTurnaroundHours: 36,
-    totalWorkers: Number(totalWorkers),
-    revenueThisMonth: Number(total) * 5000,
-    requestsByPackage: byPackage,
+    totalRequests: allRequests.length,
+    completed: allRequests.filter(r => r.status === "completed").length,
+    inProgress: allRequests.filter(r => r.status === "in_progress").length,
+    pendingPayment: allRequests.filter(r => r.status === "pending_payment").length,
+    totalRevenue: await totalRevenue,
+    totalUsers: Number(totalUsers),
   });
 });
 

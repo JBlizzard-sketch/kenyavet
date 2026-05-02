@@ -5,43 +5,30 @@ import { requireAuth, type AuthRequest } from "../lib/auth-middleware";
 import {
   CreateVettingRequestBody,
   UpdateVettingRequestBody,
-  GetVettingRequestParams,
-  UpdateVettingRequestParams,
-  ListVettingRequestsQueryParams,
 } from "@workspace/api-zod";
 
 const router: IRouter = Router();
 
 const STEP_DEFINITIONS = [
   { stepName: "Identity Verification", stepKey: "identity_check", order: 1 },
-  { stepName: "Reference Calls", stepKey: "reference_calls", order: 2 },
-  { stepName: "DCI Certificate Check", stepKey: "dci_certificate", order: 3 },
+  { stepName: "DCI Certificate Check", stepKey: "dci_certificate", order: 2 },
+  { stepName: "Reference Calls", stepKey: "reference_calls", order: 3 },
   { stepName: "Social Media Review", stepKey: "social_media_review", order: 4 },
 ];
 
-const PREMIUM_STEPS = [
-  ...STEP_DEFINITIONS,
-  { stepName: "Physical Address Visit", stepKey: "address_visit", order: 5 },
-];
-
+const PREMIUM_EXTRA = { stepName: "Physical Address Visit", stepKey: "address_visit", order: 5 };
 const FINAL_STEP = { stepName: "Report Generation", stepKey: "report_generation", order: 6 };
 
 router.get("/vetting-requests", requireAuth, async (req: AuthRequest, res): Promise<void> => {
-  const query = ListVettingRequestsQueryParams.safeParse(req.query);
-  const page = Number(query.success ? query.data.page ?? 1 : 1);
-  const limit = Number(query.success ? query.data.limit ?? 10 : 10);
+  const page = Math.max(1, Number(req.query.page ?? 1));
+  const limit = Math.min(50, Math.max(1, Number(req.query.limit ?? 20)));
   const offset = (page - 1) * limit;
 
-  const conditions = [eq(vettingRequestsTable.employerId, req.userId!)];
-
-  const requests = await db
-    .select({
-      vr: vettingRequestsTable,
-      pkg: vettingPackagesTable,
-    })
+  const rows = await db
+    .select({ vr: vettingRequestsTable, pkg: vettingPackagesTable })
     .from(vettingRequestsTable)
     .leftJoin(vettingPackagesTable, eq(vettingRequestsTable.packageId, vettingPackagesTable.id))
-    .where(and(...conditions))
+    .where(eq(vettingRequestsTable.employerId, req.userId!))
     .orderBy(desc(vettingRequestsTable.createdAt))
     .limit(limit)
     .offset(offset);
@@ -49,10 +36,10 @@ router.get("/vetting-requests", requireAuth, async (req: AuthRequest, res): Prom
   const [{ total }] = await db
     .select({ total: count() })
     .from(vettingRequestsTable)
-    .where(and(...conditions));
+    .where(eq(vettingRequestsTable.employerId, req.userId!));
 
   res.json({
-    items: requests.map(r => formatRequest(r.vr, r.pkg?.name ?? "")),
+    requests: rows.map(r => formatRequest(r.vr, r.pkg?.name ?? "", r.pkg?.priceKsh ?? 0)),
     total: Number(total),
     page,
     limit,
@@ -62,14 +49,14 @@ router.get("/vetting-requests", requireAuth, async (req: AuthRequest, res): Prom
 router.post("/vetting-requests", requireAuth, async (req: AuthRequest, res): Promise<void> => {
   const parsed = CreateVettingRequestBody.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
+    res.status(400).json({ message: parsed.error.message });
     return;
   }
   const data = parsed.data;
 
   const [pkg] = await db.select().from(vettingPackagesTable).where(eq(vettingPackagesTable.id, data.packageId));
   if (!pkg) {
-    res.status(400).json({ error: "Invalid package" });
+    res.status(400).json({ message: "Invalid package" });
     return;
   }
 
@@ -86,7 +73,7 @@ router.post("/vetting-requests", requireAuth, async (req: AuthRequest, res): Pro
     status: "pending_payment",
   }).returning();
 
-  const steps = pkg.slug === "premium" ? PREMIUM_STEPS : STEP_DEFINITIONS;
+  const steps = pkg.slug === "premium" ? [...STEP_DEFINITIONS, PREMIUM_EXTRA] : STEP_DEFINITIONS;
   const allSteps = [...steps, FINAL_STEP];
   for (const step of allSteps) {
     await db.insert(vettingStepsTable).values({
@@ -106,39 +93,44 @@ router.post("/vetting-requests", requireAuth, async (req: AuthRequest, res): Pro
     linkId: vr.id,
   });
 
-  res.status(201).json(formatRequest(vr, pkg.name));
+  res.status(201).json({ request: formatRequest(vr, pkg.name, pkg.priceKsh) });
 });
 
 router.get("/vetting-requests/:id", requireAuth, async (req: AuthRequest, res): Promise<void> => {
-  const params = GetVettingRequestParams.safeParse(req.params);
-  if (!params.success) {
-    res.status(400).json({ error: "Invalid ID" });
-    return;
-  }
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ message: "Invalid ID" }); return; }
+
   const [row] = await db
     .select({ vr: vettingRequestsTable, pkg: vettingPackagesTable })
     .from(vettingRequestsTable)
     .leftJoin(vettingPackagesTable, eq(vettingRequestsTable.packageId, vettingPackagesTable.id))
-    .where(and(eq(vettingRequestsTable.id, params.data.id), eq(vettingRequestsTable.employerId, req.userId!)));
+    .where(and(eq(vettingRequestsTable.id, id), eq(vettingRequestsTable.employerId, req.userId!)));
 
-  if (!row) {
-    res.status(404).json({ error: "Not found" });
-    return;
-  }
-  res.json(formatRequest(row.vr, row.pkg?.name ?? ""));
+  if (!row) { res.status(404).json({ message: "Not found" }); return; }
+
+  const steps = await db.select().from(vettingStepsTable)
+    .where(eq(vettingStepsTable.vettingRequestId, id))
+    .orderBy(vettingStepsTable.order);
+
+  res.json({
+    ...formatRequest(row.vr, row.pkg?.name ?? "", row.pkg?.priceKsh ?? 0),
+    turnaroundHours: row.pkg?.turnaroundHours ?? 48,
+    steps: steps.map(s => ({
+      id: s.id,
+      stepName: s.stepName,
+      status: s.status,
+      notes: s.notes,
+      completedAt: s.completedAt?.toISOString() ?? null,
+    })),
+  });
 });
 
 router.patch("/vetting-requests/:id", requireAuth, async (req: AuthRequest, res): Promise<void> => {
-  const params = UpdateVettingRequestParams.safeParse(req.params);
-  if (!params.success) {
-    res.status(400).json({ error: "Invalid ID" });
-    return;
-  }
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ message: "Invalid ID" }); return; }
   const parsed = UpdateVettingRequestBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
-    return;
-  }
+  if (!parsed.success) { res.status(400).json({ message: parsed.error.message }); return; }
+
   const update: Record<string, unknown> = {};
   if (parsed.data.workerName != null) update.workerName = parsed.data.workerName;
   if (parsed.data.workerPhone != null) update.workerPhone = parsed.data.workerPhone;
@@ -147,57 +139,27 @@ router.patch("/vetting-requests/:id", requireAuth, async (req: AuthRequest, res)
 
   const [vr] = await db.update(vettingRequestsTable)
     .set(update)
-    .where(and(eq(vettingRequestsTable.id, params.data.id), eq(vettingRequestsTable.employerId, req.userId!)))
+    .where(and(eq(vettingRequestsTable.id, id), eq(vettingRequestsTable.employerId, req.userId!)))
     .returning();
-  if (!vr) {
-    res.status(404).json({ error: "Not found" });
-    return;
-  }
+  if (!vr) { res.status(404).json({ message: "Not found" }); return; }
   const [pkg] = await db.select().from(vettingPackagesTable).where(eq(vettingPackagesTable.id, vr.packageId));
-  res.json(formatRequest(vr, pkg?.name ?? ""));
+  res.json(formatRequest(vr, pkg?.name ?? "", pkg?.priceKsh ?? 0));
 });
 
-router.get("/vetting-requests/:id/steps", requireAuth, async (req: AuthRequest, res): Promise<void> => {
-  const params = GetVettingRequestParams.safeParse(req.params);
-  if (!params.success) {
-    res.status(400).json({ error: "Invalid ID" });
-    return;
-  }
-  const [vr] = await db.select().from(vettingRequestsTable)
-    .where(and(eq(vettingRequestsTable.id, params.data.id), eq(vettingRequestsTable.employerId, req.userId!)));
-  if (!vr) {
-    res.status(404).json({ error: "Not found" });
-    return;
-  }
-  const steps = await db.select().from(vettingStepsTable)
-    .where(eq(vettingStepsTable.vettingRequestId, params.data.id))
-    .orderBy(vettingStepsTable.order);
-  res.json(steps.map(s => ({
-    id: s.id,
-    vettingRequestId: s.vettingRequestId,
-    stepName: s.stepName,
-    stepKey: s.stepKey,
-    status: s.status,
-    order: s.order,
-    notes: s.notes,
-    completedAt: s.completedAt?.toISOString() ?? null,
-  })));
-});
-
-function formatRequest(vr: typeof vettingRequestsTable.$inferSelect, packageName: string) {
+function formatRequest(vr: typeof vettingRequestsTable.$inferSelect, packageName: string, priceKsh: number) {
   return {
     id: vr.id,
     employerId: vr.employerId,
     workerName: vr.workerName,
     workerPhone: vr.workerPhone,
     workerIdNumber: vr.workerIdNumber,
+    workerEmail: null as string | null,
     workerRole: vr.workerRole,
     packageId: vr.packageId,
     packageName,
+    priceKsh,
     status: vr.status,
     trustScore: vr.trustScore,
-    workerPhotoUrl: vr.workerPhotoUrl,
-    workerAddress: vr.workerAddress,
     notes: vr.notes,
     reportId: vr.reportId,
     completedAt: vr.completedAt?.toISOString() ?? null,
