@@ -4,7 +4,8 @@ import AppLayout from "@/components/layout/AppLayout";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import { formatKsh, formatDate } from "@/lib/utils";
-import { CreditCard, Receipt, ArrowLeft, TrendingUp, Calendar, Hash } from "lucide-react";
+import { CreditCard, Receipt, ArrowLeft, TrendingUp, Calendar, Hash, Download } from "lucide-react";
+import { API_BASE } from "@/lib/api";
 
 interface Transaction {
   id: number;
@@ -41,6 +42,28 @@ export default function Billing() {
   const [data, setData] = useState<BillingHistory | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [exporting, setExporting] = useState(false);
+
+  async function handleExport() {
+    if (!token) return;
+    setExporting(true);
+    try {
+      const res = await fetch(`${API_BASE}/billing/export`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Export failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `kenyavet-billing-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+    } finally {
+      setExporting(false);
+    }
+  }
 
   useEffect(() => {
     apiFetch<BillingHistory>("/billing/history", { token })
@@ -58,10 +81,20 @@ export default function Billing() {
               <ArrowLeft className="w-5 h-5" />
             </button>
           </Link>
-          <div>
+          <div className="flex-1">
             <h1 className="text-2xl font-serif font-bold text-foreground">Billing & Payments</h1>
             <p className="text-muted-foreground text-sm mt-0.5">All M-Pesa payments for your vetting requests</p>
           </div>
+          {data && data.transactionCount > 0 && (
+            <button
+              onClick={handleExport}
+              disabled={exporting}
+              className="flex items-center gap-2 text-sm px-3 py-2 rounded-lg border border-border hover:border-primary/50 hover:text-primary text-muted-foreground transition-colors disabled:opacity-50"
+            >
+              <Download className="w-4 h-4" />
+              {exporting ? "Exporting…" : "Export CSV"}
+            </button>
+          )}
         </div>
 
         {loading && (

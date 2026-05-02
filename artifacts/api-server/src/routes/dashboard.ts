@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { db, vettingRequestsTable, vettingPackagesTable, staffRecordsTable, activityItemsTable, reportsTable } from "@workspace/db";
+import { db, vettingRequestsTable, vettingPackagesTable, staffRecordsTable, activityItemsTable, reportsTable, usersTable } from "@workspace/db";
 import { eq, and, count, desc, isNull, lte, isNotNull } from "drizzle-orm";
 import { requireAuth, type AuthRequest } from "../lib/auth-middleware";
 
@@ -83,6 +83,26 @@ router.post("/notifications/mark-all-read", requireAuth, async (req: AuthRequest
   res.json({ success: true });
 });
 
+router.get("/dashboard/onboarding", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  const uid = req.userId!;
+  const [userRow] = await db.select().from(usersTable).where(eq(usersTable.id, uid)).limit(1);
+  const requests = await db.select().from(vettingRequestsTable).where(eq(vettingRequestsTable.employerId, uid));
+
+  const profileComplete = !!(userRow?.phone && userRow?.neighbourhood);
+  const hasRequest = requests.length > 0;
+  const hasPaid = requests.some(r => r.mpesaRef != null);
+  const hasReport = requests.some(r => r.status === "completed" && r.reportId != null);
+
+  const steps = [
+    { id: "profile", label: "Complete your profile", sublabel: "Add your phone number and neighbourhood", done: profileComplete, href: "/profile" },
+    { id: "request", label: "Submit your first vetting request", sublabel: "Enter worker details and choose a package", done: hasRequest, href: "/vetting-requests/new" },
+    { id: "payment", label: "Complete M-Pesa payment", sublabel: "Pay via Lipa Na M-Pesa to start vetting", done: hasPaid, href: "/vetting-requests" },
+    { id: "report", label: "Receive your vetting report", sublabel: "Your report with trust score will be ready in 24–48h", done: hasReport, href: "/reports" },
+  ];
+
+  res.json({ steps, allDone: steps.every(s => s.done) });
+});
+
 router.get("/billing/history", requireAuth, async (req: AuthRequest, res): Promise<void> => {
   const uid = req.userId!;
   const rows = await db
@@ -117,6 +137,32 @@ router.get("/billing/history", requireAuth, async (req: AuthRequest, res): Promi
       status: r.vr.status,
     })),
   });
+});
+
+router.get("/billing/export", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  const uid = req.userId!;
+  const rows = await db
+    .select({ vr: vettingRequestsTable, pkg: vettingPackagesTable })
+    .from(vettingRequestsTable)
+    .leftJoin(vettingPackagesTable, eq(vettingRequestsTable.packageId, vettingPackagesTable.id))
+    .where(and(eq(vettingRequestsTable.employerId, uid), isNotNull(vettingRequestsTable.mpesaRef)))
+    .orderBy(desc(vettingRequestsTable.updatedAt));
+
+  const headers = ["Request ID", "Worker Name", "Worker Role", "Package", "Price (Ksh)", "M-Pesa Ref", "Paid At", "Status"];
+  const csvRows = rows.map(r => [
+    r.vr.id,
+    `"${r.vr.workerName}"`,
+    `"${r.vr.workerRole}"`,
+    `"${r.pkg?.name ?? ""}"`,
+    r.pkg?.priceKsh ?? 0,
+    r.vr.mpesaRef ?? "",
+    r.vr.updatedAt.toISOString().split("T")[0],
+    r.vr.status,
+  ]);
+  const csv = [headers.join(","), ...csvRows.map(r => r.join(","))].join("\n");
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", `attachment; filename="kenyavet-billing-${new Date().toISOString().split("T")[0]}.csv"`);
+  res.send(csv);
 });
 
 router.get("/dashboard/weekly-activity", requireAuth, async (req: AuthRequest, res): Promise<void> => {

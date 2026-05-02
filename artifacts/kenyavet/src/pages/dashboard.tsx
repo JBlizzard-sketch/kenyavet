@@ -6,7 +6,7 @@ import { apiFetch } from "@/lib/api";
 import { formatDate, formatKsh, getStatusColor, getStatusLabel, getTrustScoreBg } from "@/lib/utils";
 import {
   ClipboardList, Users, CheckCircle, TrendingUp, Plus, ArrowRight,
-  CreditCard, FileText, Shield, Bell, Zap, BarChart2,
+  CreditCard, FileText, Shield, Bell, Zap, BarChart2, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -42,6 +42,14 @@ interface WeekDay {
   label: string;
   date: string;
   count: number;
+}
+
+interface OnboardingStep {
+  id: string;
+  label: string;
+  sublabel: string;
+  done: boolean;
+  href: string;
 }
 
 function activityIcon(type: string) {
@@ -90,20 +98,28 @@ export default function Dashboard() {
   const [activity, setActivity] = useState<ActivityItem[]>([]);
   const [weekDays, setWeekDays] = useState<WeekDay[]>([]);
   const [loading, setLoading] = useState(true);
+  const [onboarding, setOnboarding] = useState<{ steps: OnboardingStep[]; allDone: boolean } | null>(null);
+  const [onboardingDismissed, setOnboardingDismissed] = useState(() =>
+    localStorage.getItem("kv_onboarding_dismissed") === "1"
+  );
 
   useEffect(() => {
     async function load() {
       try {
-        const [statsData, recentData, activityData, weekData] = await Promise.all([
+        const [statsData, recentData, activityData, weekData, onboardingData] = await Promise.all([
           apiFetch<DashboardStats>("/dashboard/stats", { token }),
           apiFetch<RecentRequest[]>("/dashboard/recent-requests", { token }),
           apiFetch<ActivityItem[]>("/dashboard/activity", { token }),
           apiFetch<{ days: WeekDay[] }>("/dashboard/weekly-activity", { token }),
+          user?.role === "employer"
+            ? apiFetch<{ steps: OnboardingStep[]; allDone: boolean }>("/dashboard/onboarding", { token })
+            : Promise.resolve(null),
         ]);
         setStats(statsData);
         setRecent(recentData);
         setActivity(activityData);
         setWeekDays(weekData.days);
+        if (onboardingData) setOnboarding(onboardingData);
       } catch {
       } finally {
         setLoading(false);
@@ -144,6 +160,51 @@ export default function Dashboard() {
             </Button>
           </Link>
         </div>
+
+        {/* Onboarding checklist */}
+        {onboarding && !onboarding.allDone && !onboardingDismissed && (
+          <div className="mb-6 bg-gradient-to-br from-primary/5 via-primary/3 to-transparent border border-primary/20 rounded-xl p-5">
+            <div className="flex items-start justify-between gap-4 mb-4">
+              <div>
+                <h2 className="font-semibold text-foreground flex items-center gap-2">
+                  <Zap className="w-4 h-4 text-primary" />
+                  Get started with KenyaVet
+                </h2>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Complete these steps to run your first background check
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  localStorage.setItem("kv_onboarding_dismissed", "1");
+                  setOnboardingDismissed(true);
+                }}
+                className="text-muted-foreground hover:text-foreground p-1 rounded shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="space-y-2.5">
+              {onboarding.steps.map((step, i) => (
+                <Link key={step.id} href={step.href}>
+                  <div className={`flex items-center gap-3 p-3 rounded-lg transition-colors ${step.done ? "opacity-60" : "hover:bg-primary/5 cursor-pointer"}`}>
+                    <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${step.done ? "bg-emerald-100" : "bg-muted"}`}>
+                      {step.done
+                        ? <CheckCircle className="w-4 h-4 text-emerald-600" />
+                        : <span className="text-xs font-bold text-muted-foreground">{i + 1}</span>
+                      }
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm font-medium ${step.done ? "line-through text-muted-foreground" : "text-foreground"}`}>{step.label}</p>
+                      <p className="text-xs text-muted-foreground">{step.sublabel}</p>
+                    </div>
+                    {!step.done && <ArrowRight className="w-3.5 h-3.5 text-muted-foreground shrink-0" />}
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Pending payment nudge */}
         {!loading && pendingPayments.length > 0 && (

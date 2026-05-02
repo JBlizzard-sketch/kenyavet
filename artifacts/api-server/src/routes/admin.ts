@@ -676,6 +676,35 @@ router.get("/ops/analytics", requireAuth, requireRole("admin", "ops"), async (_r
   });
 });
 
+router.get("/admin/export/requests", requireAuth, requireRole("admin", "ops"), async (req: AuthRequest, res): Promise<void> => {
+  const rows = await db
+    .select({ vr: vettingRequestsTable, pkg: vettingPackagesTable, emp: usersTable })
+    .from(vettingRequestsTable)
+    .leftJoin(vettingPackagesTable, eq(vettingRequestsTable.packageId, vettingPackagesTable.id))
+    .leftJoin(usersTable, eq(vettingRequestsTable.employerId, usersTable.id))
+    .orderBy(desc(vettingRequestsTable.createdAt));
+
+  const headers = ["ID", "Worker Name", "Worker Role", "ID Number", "Package", "Price (Ksh)", "Status", "Trust Score", "Employer", "Employer Email", "M-Pesa Ref", "Created At"];
+  const csvRows = rows.map(r => [
+    r.vr.id,
+    `"${r.vr.workerName}"`,
+    `"${r.vr.workerRole}"`,
+    r.vr.workerIdNumber ?? "",
+    `"${r.pkg?.name ?? ""}"`,
+    r.pkg?.priceKsh ?? "",
+    r.vr.status,
+    r.vr.trustScore ?? "",
+    `"${r.emp?.name ?? ""}"`,
+    r.emp?.email ?? "",
+    r.vr.mpesaRef ?? "",
+    r.vr.createdAt.toISOString().split("T")[0],
+  ]);
+  const csv = [headers.join(","), ...csvRows.map(r => r.join(","))].join("\n");
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", `attachment; filename="kenyavet-requests-${new Date().toISOString().split("T")[0]}.csv"`);
+  res.send(csv);
+});
+
 router.get("/admin/users", requireAuth, requireRole("admin", "ops"), async (req: AuthRequest, res): Promise<void> => {
   const rows = await db
     .select({ u: usersTable, reqCount: count(vettingRequestsTable.id) })
