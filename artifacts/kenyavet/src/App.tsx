@@ -12,6 +12,7 @@ import VettingRequests from "@/pages/vetting-requests";
 import NewVettingRequest from "@/pages/new-vetting-request";
 import VettingRequestDetail from "@/pages/vetting-request-detail";
 import Workers from "@/pages/workers";
+import WorkerCompare from "@/pages/worker-compare";
 import WorkerProfile from "@/pages/worker-profile";
 import Staff from "@/pages/staff";
 import StaffDetail from "@/pages/staff-detail";
@@ -65,6 +66,9 @@ function Router() {
       </Route>
       <Route path="/vetting-requests">
         {() => <PrivateRoute component={VettingRequests} />}
+      </Route>
+      <Route path="/workers/compare">
+        {() => <PrivateRoute component={WorkerCompare} />}
       </Route>
       <Route path="/workers/:id">
         {() => <PrivateRoute component={WorkerProfile} />}

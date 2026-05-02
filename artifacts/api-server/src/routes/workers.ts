@@ -104,6 +104,66 @@ router.get("/workers", async (req, res): Promise<void> => {
   });
 });
 
+// GET /workers/compare?ids=1,-2,3 — public, enriched data for up to 3 workers
+// IMPORTANT: must be defined BEFORE /workers/:id so "compare" isn't treated as an id
+router.get("/workers/compare", async (req, res): Promise<void> => {
+  const rawStr = (req.query.ids as string) || "";
+  const rawIds = rawStr.split(",").map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
+  if (rawIds.length === 0 || rawIds.length > 3) {
+    res.status(400).json({ message: "Provide 1–3 worker IDs" }); return;
+  }
+
+  const results = await Promise.all(rawIds.map(async (id) => {
+    if (id > 0) {
+      const [worker] = await db.select().from(workersTable).where(eq(workersTable.id, id));
+      if (!worker) return null;
+      const reviews = await db.select({ rating: workerReviewsTable.rating }).from(workerReviewsTable).where(eq(workerReviewsTable.workerId, id));
+      const avgRating = reviews.length > 0
+        ? Math.round((reviews.reduce((s, r) => s + r.rating, 0) / reviews.length) * 10) / 10
+        : null;
+      const [report] = await db.select().from(reportsTable)
+        .where(ilike(reportsTable.workerName, worker.name))
+        .orderBy(desc(reportsTable.completedAt))
+        .limit(1);
+      return { ...formatWorker(worker), avgRating, reviewCount: reviews.length, scoreBreakdown: report?.scoreBreakdown ?? null };
+    } else {
+      const reportId = -id;
+      const [row] = await db
+        .select({ r: reportsTable, vr: vettingRequestsTable })
+        .from(reportsTable)
+        .innerJoin(vettingRequestsTable, eq(reportsTable.vettingRequestId, vettingRequestsTable.id))
+        .where(eq(reportsTable.id, reportId));
+      if (!row) return null;
+      const badges: string[] = [];
+      if (row.r.identityVerified) badges.push("Identity Verified");
+      if (row.r.dciCertificateStatus === "verified") badges.push("DCI Cleared");
+      if (row.r.referencesSummary) badges.push("References Checked");
+      if (row.r.socialMediaSummary) badges.push("Social Media Reviewed");
+      if (row.r.addressVerified) badges.push("Address Verified");
+      return {
+        id,
+        name: row.r.workerName,
+        role: row.r.workerRole,
+        trustScore: row.r.overallTrustScore,
+        photoUrl: row.r.workerPhotoUrl,
+        neighbourhood: row.vr.workerAddress ?? null,
+        yearsExperience: null,
+        languages: [] as string[],
+        badges,
+        qrCode: null,
+        vetCount: 1,
+        verifiedAt: row.r.completedAt.toISOString(),
+        createdAt: row.r.createdAt.toISOString(),
+        avgRating: null,
+        reviewCount: 0,
+        scoreBreakdown: row.r.scoreBreakdown,
+      };
+    }
+  }));
+
+  res.json({ workers: results.filter(Boolean) });
+});
+
 router.get("/workers/:id", async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ message: "Invalid ID" }); return; }

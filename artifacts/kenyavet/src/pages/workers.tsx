@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import AppLayout from "@/components/layout/AppLayout";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import { getTrustScoreBg, getTrustScoreLabel, formatDate } from "@/lib/utils";
-import { Search, Shield, CheckCircle, QrCode, FileText, Users, GitCompareArrows, X, ArrowRight } from "lucide-react";
+import { Search, Shield, CheckCircle, QrCode, Users, GitCompareArrows, X, ArrowRight, Star } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
@@ -22,6 +22,8 @@ interface Worker {
   verifiedAt: string | null;
   fromReport?: boolean;
   reportId?: number | null;
+  avgRating?: number | null;
+  reviewCount?: number;
 }
 
 const roleFilters = ["All", "Housekeeper", "Driver", "Nanny", "Cook", "Gardener", "Security Guard"];
@@ -33,82 +35,59 @@ const minScoreOptions = [
 ];
 
 function ComparePanel({ workers, ids, onClose }: { workers: Worker[]; ids: number[]; onClose: () => void }) {
+  const [, navigate] = useLocation();
   const selected = ids.map(id => workers.find(w => w.id === id)).filter(Boolean) as Worker[];
   if (selected.length === 0) return null;
 
-  function ScoreBar({ score }: { score: number | null }) {
-    if (score == null) return <span className="text-xs text-muted-foreground">No score</span>;
-    const color = score >= 80 ? "bg-emerald-500" : score >= 60 ? "bg-amber-500" : "bg-red-400";
-    return (
-      <div>
-        <div className="flex justify-between items-center mb-1">
-          <span className={`text-sm font-bold px-2 py-0.5 rounded-full ${getTrustScoreBg(score)}`}>{score}/100</span>
-          <span className="text-xs text-muted-foreground">{getTrustScoreLabel(score)}</span>
-        </div>
-        <div className="h-2 bg-muted rounded-full overflow-hidden">
-          <div className={`h-full rounded-full ${color}`} style={{ width: `${score}%` }} />
-        </div>
-      </div>
-    );
+  function goFullCompare() {
+    navigate(`/workers/compare?ids=${ids.join(",")}`);
+    onClose();
   }
 
   return (
     <div className="fixed inset-x-0 bottom-0 z-50 bg-card border-t border-border shadow-2xl">
-      <div className="max-w-4xl mx-auto p-4">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold text-foreground flex items-center gap-2">
+      <div className="max-w-5xl mx-auto p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-semibold text-foreground flex items-center gap-2 text-sm">
             <GitCompareArrows className="w-4 h-4 text-primary" />
-            Worker Comparison
+            Comparing {selected.length} worker{selected.length !== 1 ? "s" : ""}
+            {selected.length < 3 && (
+              <span className="text-xs text-muted-foreground font-normal ml-1">
+                · select {3 - selected.length} more to add
+              </span>
+            )}
           </h3>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground p-1 rounded">
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            {selected.length >= 2 && (
+              <Button size="sm" className="gap-1.5 h-8 text-xs" onClick={goFullCompare}>
+                <GitCompareArrows className="w-3 h-3" />
+                Full Comparison
+              </Button>
+            )}
+            <button onClick={onClose} className="text-muted-foreground hover:text-foreground p-1 rounded">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
-        {selected.length === 1 ? (
-          <p className="text-sm text-muted-foreground text-center py-2">
-            Select one more worker to compare side-by-side.
-          </p>
-        ) : (
-          <div className="grid grid-cols-2 gap-4">
-            {selected.map(w => (
-              <div key={w.id} className="space-y-3">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                    <span className="text-primary font-bold">{w.name.charAt(0)}</span>
-                  </div>
-                  <div>
-                    <p className="font-semibold text-foreground text-sm">{w.name}</p>
-                    <p className="text-xs text-muted-foreground">{w.role}</p>
-                  </div>
-                </div>
-                <ScoreBar score={w.trustScore} />
-                <div className="space-y-1 text-xs text-muted-foreground">
-                  {w.neighbourhood && <div>📍 {w.neighbourhood}</div>}
-                  {w.yearsExperience && <div>⏱ {w.yearsExperience} yrs experience</div>}
-                  {w.verifiedAt && <div className="text-emerald-600">✓ Verified {formatDate(w.verifiedAt)}</div>}
-                </div>
-                {w.badges && w.badges.length > 0 && (
-                  <div className="flex flex-wrap gap-1">
-                    {w.badges.slice(0, 4).map(b => (
-                      <span key={b} className="text-[10px] px-1.5 py-0.5 bg-emerald-50 text-emerald-700 rounded-full border border-emerald-100 flex items-center gap-0.5">
-                        <CheckCircle className="w-2.5 h-2.5" /> {b}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                {w.languages && w.languages.length > 0 && (
-                  <div className="text-xs text-muted-foreground">{w.languages.join(" · ")}</div>
-                )}
-                <Link href={`/workers/${w.id}`}>
-                  <Button size="sm" className="w-full gap-1.5 h-8 text-xs mt-1">
-                    View Profile <ArrowRight className="w-3 h-3" />
-                  </Button>
-                </Link>
+        <div className={`grid gap-3 ${selected.length === 3 ? "grid-cols-3" : "grid-cols-2"}`}>
+          {selected.map(w => (
+            <div key={w.id} className="flex items-center gap-2.5 bg-muted/40 rounded-lg px-3 py-2">
+              <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                <span className="text-primary font-bold text-sm">{w.name.charAt(0)}</span>
               </div>
-            ))}
-          </div>
-        )}
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-foreground text-sm truncate">{w.name}</p>
+                <p className="text-xs text-muted-foreground">{w.role}</p>
+              </div>
+              {w.trustScore != null && (
+                <span className={`text-xs px-2 py-0.5 rounded-full font-bold shrink-0 ${getTrustScoreBg(w.trustScore)}`}>
+                  {w.trustScore}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -127,7 +106,7 @@ export default function Workers() {
   function toggleCompare(id: number) {
     setCompareList(prev => {
       if (prev.includes(id)) return prev.filter(x => x !== id);
-      if (prev.length >= 2) return [prev[1], id];
+      if (prev.length >= 3) return [prev[1], prev[2], id];
       return [...prev, id];
     });
   }
@@ -288,8 +267,17 @@ export default function Workers() {
                 )}
 
                 {worker.languages && worker.languages.length > 0 && (
-                  <div className="text-xs text-muted-foreground mb-4">
+                  <div className="text-xs text-muted-foreground mb-2">
                     {worker.languages.join(" · ")}
+                  </div>
+                )}
+
+                {worker.avgRating != null && (
+                  <div className="flex items-center gap-1 mb-2">
+                    {[1,2,3,4,5].map(n => (
+                      <Star key={n} className={`w-3 h-3 ${n <= Math.round(worker.avgRating!) ? "text-amber-400 fill-amber-400" : "text-muted-foreground/30"}`} />
+                    ))}
+                    <span className="text-xs text-muted-foreground ml-0.5">{worker.avgRating} ({worker.reviewCount})</span>
                   </div>
                 )}
 
