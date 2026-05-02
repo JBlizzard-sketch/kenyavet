@@ -73,6 +73,7 @@ All under `/api`:
 - `GET /admin/stats` — counts, revenue totals
 - `GET /admin/requests/:id/detail` — full request detail with steps[] and references[]
 - `PATCH /admin/steps/:stepId` — update individual vetting step status/notes
+- `PATCH /admin/references/:refId` — update reference call status/summary (admin/ops only)
 - `GET /admin/analytics` — last 6 months activity + package breakdown + revenue
 - `PATCH /admin/reports/:id`, `POST /admin/requests/:id/notify`
 
@@ -86,7 +87,7 @@ All under `/api`:
 - `/dashboard` — stats overview, recent requests, activity feed, completion rate bar
 - `/vetting-requests` — list of all requests with status filter
 - `/vetting-requests/new` — submit new vetting request with reference contacts (1/2/3 by package)
-- `/vetting-requests/:id` — request detail with steps + receipt link
+- `/vetting-requests/:id` — request detail with steps, reference contacts (read-only), step progress counter
 - `/receipt/:id` — printable M-Pesa payment receipt (auth)
 - `/workers` — verified worker directory (merged from workersTable + completed reports)
 - `/staff` — household staff management, add-from-report, QR card
@@ -115,4 +116,7 @@ All under `/api`:
 - Standard package → 2 reference calls required
 - Premium package → 3 reference calls required
 - Stored in `reference_contacts` table; fetched alongside steps in admin/ops detail views
-- Ops drawer shows clickable `tel:` links for each reference with call status badge
+- Ops drawer: `RefCallCard` component — expandable per-reference editor with call status dropdown (pending/completed/no_answer/busy/wrong_number) + summary textarea + save button; shows X/N called counter in header
+- Employer detail page: read-only reference section shows call status badges and summaries once ops has called
+- `GET /vetting-requests/:id` now returns `references[]` and `stepProgress` (completed/total counts)
+- `GET /vetting-requests` list shows mini step progress bar for in_progress requests

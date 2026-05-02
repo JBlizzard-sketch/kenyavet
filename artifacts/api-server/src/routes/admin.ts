@@ -335,6 +335,24 @@ router.patch("/admin/steps/:stepId", requireAuth, requireRole("admin", "ops"), a
   res.json({ id: step.id, status: step.status, message: "Step updated" });
 });
 
+router.patch("/admin/references/:refId", requireAuth, requireRole("admin", "ops"), async (req: AuthRequest, res): Promise<void> => {
+  const refId = parseInt(req.params.refId as string, 10);
+  if (isNaN(refId)) { res.status(400).json({ message: "Invalid ref ID" }); return; }
+
+  const { callStatus, callSummary } = req.body;
+  const update: Record<string, unknown> = {};
+  if (callStatus) update.callStatus = callStatus;
+  if (callSummary !== undefined) update.callSummary = callSummary;
+
+  const [ref] = await db.update(referenceContactsTable)
+    .set(update)
+    .where(eq(referenceContactsTable.id, refId))
+    .returning();
+
+  if (!ref) { res.status(404).json({ message: "Reference not found" }); return; }
+  res.json({ id: ref.id, callStatus: ref.callStatus, callSummary: ref.callSummary });
+});
+
 router.get("/admin/stats", requireAuth, requireRole("admin", "ops"), async (_req, res): Promise<void> => {
   const allRequests = await db.select().from(vettingRequestsTable);
   const [{ totalUsers }] = await db.select({ totalUsers: count() }).from(usersTable);

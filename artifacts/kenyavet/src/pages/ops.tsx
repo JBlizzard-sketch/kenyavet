@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface Step {
   id: number;
@@ -206,6 +207,112 @@ function StepRow({
   );
 }
 
+const CALL_STATUSES = [
+  { value: "pending", label: "Not Called" },
+  { value: "completed", label: "Completed" },
+  { value: "no_answer", label: "No Answer" },
+  { value: "busy", label: "Busy" },
+  { value: "wrong_number", label: "Wrong Number" },
+];
+
+function RefCallCard({ contact: refContact, token, onUpdated }: { contact: RefContact; token: string | null; onUpdated: () => void }) {
+  const [callStatus, setCallStatus] = useState(refContact.callStatus);
+  const [callSummary, setCallSummary] = useState(refContact.callSummary ?? "");
+  const [saving, setSaving] = useState(false);
+  const [expanded, setExpanded] = useState(refContact.callStatus === "pending");
+
+  const statusCfg: Record<string, { bg: string; text: string }> = {
+    completed: { bg: "bg-emerald-100", text: "text-emerald-700" },
+    no_answer: { bg: "bg-amber-100", text: "text-amber-700" },
+    busy: { bg: "bg-amber-100", text: "text-amber-600" },
+    wrong_number: { bg: "bg-red-100", text: "text-red-600" },
+    pending: { bg: "bg-muted", text: "text-muted-foreground" },
+  };
+  const cfg = statusCfg[callStatus] ?? statusCfg.pending;
+
+  async function save() {
+    setSaving(true);
+    try {
+      await apiFetch(`/admin/references/${refContact.id}`, {
+        method: "PATCH",
+        token,
+        body: { callStatus, callSummary },
+      });
+      onUpdated();
+    } catch {} finally { setSaving(false); }
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-muted/30 p-3">
+      <div className="flex items-start gap-2">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-sm font-medium text-foreground">{refContact.name}</p>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${cfg.bg} ${cfg.text}`}>
+              {CALL_STATUSES.find(s => s.value === callStatus)?.label ?? callStatus}
+            </span>
+          </div>
+          <p className="text-xs text-muted-foreground">{refContact.relationship} · {refContact.employerName}</p>
+          {refContact.yearsWorked && <p className="text-xs text-muted-foreground">{refContact.yearsWorked}yr known</p>}
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <a
+            href={`tel:${refContact.phone}`}
+            className="flex items-center gap-1 text-xs bg-primary text-primary-foreground px-2 py-1 rounded-lg hover:bg-primary/90 transition-colors"
+          >
+            <Phone className="w-3 h-3" /> {refContact.phone}
+          </a>
+          <button
+            onClick={() => setExpanded(e => !e)}
+            className="text-muted-foreground hover:text-foreground p-1"
+          >
+            <ChevronRight className={`w-3.5 h-3.5 transition-transform ${expanded ? "rotate-90" : ""}`} />
+          </button>
+        </div>
+      </div>
+
+      {expanded && (
+        <div className="mt-3 pt-3 border-t border-border/50 space-y-2">
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Call Status</label>
+            <Select value={callStatus} onValueChange={setCallStatus}>
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {CALL_STATUSES.map(s => (
+                  <SelectItem key={s.value} value={s.value} className="text-xs">{s.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Call Summary / Notes</label>
+            <textarea
+              className="w-full text-xs p-2 rounded-lg border bg-white resize-none focus:outline-none focus:ring-1 focus:ring-primary/30"
+              rows={2}
+              placeholder="Summarise what the reference said…"
+              value={callSummary}
+              onChange={e => setCallSummary(e.target.value)}
+            />
+          </div>
+          <div className="flex justify-end">
+            <Button
+              size="sm"
+              className="h-7 px-3 text-xs"
+              onClick={save}
+              disabled={saving}
+            >
+              {saving ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
+              Save
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function OpsDrawer({
   requestId, token, onClose, onUpdated,
 }: {
@@ -310,48 +417,32 @@ function OpsDrawer({
             </div>
 
             {/* Reference contacts */}
-            {detail.references && detail.references.length > 0 && (
-              <div>
-                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-1.5">
-                  <Phone className="w-3 h-3" /> Reference Contacts ({detail.references.length})
-                </h3>
+            <div>
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-1.5">
+                <Phone className="w-3 h-3" /> Reference Contacts
+                {detail.references?.length > 0 && (
+                  <span className="ml-1 text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">
+                    {detail.references.filter(r => r.callStatus === "completed").length}/{detail.references.length} called
+                  </span>
+                )}
+              </h3>
+              {!detail.references?.length ? (
+                <div className="rounded-xl border border-dashed border-border p-3 text-xs text-muted-foreground text-center">
+                  No reference contacts provided by the employer
+                </div>
+              ) : (
                 <div className="space-y-2">
-                  {detail.references.map((ref, i) => (
-                    <div key={ref.id} className="rounded-xl border border-border bg-muted/30 p-3">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-foreground">{ref.name}</p>
-                          <p className="text-xs text-muted-foreground">{ref.relationship} · {ref.employerName}</p>
-                          {ref.yearsWorked && <p className="text-xs text-muted-foreground">{ref.yearsWorked} yr{ref.yearsWorked !== 1 ? "s" : ""} known</p>}
-                          {ref.callSummary && (
-                            <p className="text-xs text-foreground mt-1 bg-emerald-50 rounded px-2 py-1">{ref.callSummary}</p>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <span className={`text-xs px-2 py-0.5 rounded-full ${
-                            ref.callStatus === "completed" ? "bg-emerald-100 text-emerald-700" :
-                            ref.callStatus === "no_answer" ? "bg-amber-100 text-amber-700" :
-                            "bg-muted text-muted-foreground"
-                          }`}>{ref.callStatus === "pending" ? "Not called" : ref.callStatus.replace("_", " ")}</span>
-                          <a
-                            href={`tel:${ref.phone}`}
-                            className="flex items-center gap-1 text-xs bg-primary text-primary-foreground px-2.5 py-1 rounded-lg hover:bg-primary/90 transition-colors"
-                          >
-                            <Phone className="w-3 h-3" /> {ref.phone}
-                          </a>
-                        </div>
-                      </div>
-                    </div>
+                  {detail.references.map(ref => (
+                    <RefCallCard
+                      key={ref.id}
+                      contact={ref}
+                      token={token}
+                      onUpdated={load}
+                    />
                   ))}
                 </div>
-              </div>
-            )}
-
-            {detail.references?.length === 0 && (
-              <div className="rounded-xl border border-dashed border-border p-3 text-xs text-muted-foreground text-center">
-                No reference contacts provided by the employer
-              </div>
-            )}
+              )}
+            </div>
 
             {/* Steps */}
             <div>

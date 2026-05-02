@@ -20,6 +20,7 @@ interface VettingRequest {
   trustScore: number | null;
   createdAt: string;
   updatedAt: string;
+  stepProgress?: { completed: number; total: number } | null;
 }
 
 const STATUS_OPTIONS = [
@@ -178,6 +179,25 @@ export default function VettingRequests() {
                         {req.status === "pending_payment" && (
                           <p className="text-xs text-amber-600 mt-0.5 flex items-center gap-1">
                             <Smartphone className="w-3 h-3" /> Pay to start
+                          </p>
+                        )}
+                        {req.status === "in_progress" && req.stepProgress && (
+                          <div className="mt-1.5">
+                            <div className="flex items-center justify-between mb-0.5">
+                              <span className="text-[10px] text-muted-foreground">{req.stepProgress.completed}/{req.stepProgress.total} steps</span>
+                            </div>
+                            <div className="h-1 w-20 bg-muted rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-primary rounded-full transition-all"
+                                style={{ width: `${(req.stepProgress.completed / req.stepProgress.total) * 100}%` }}
+                              />
+                            </div>
+                          </div>
+                        )}
+                        {req.status === "in_progress" && !req.stepProgress && (
+                          <p className="text-[10px] text-blue-600 mt-0.5 flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse inline-block" />
+                            Underway
                           </p>
                         )}
                       </td>

@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { db, vettingRequestsTable, vettingPackagesTable, vettingStepsTable, activityItemsTable } from "@workspace/db";
+import { db, vettingRequestsTable, vettingPackagesTable, vettingStepsTable, activityItemsTable, referenceContactsTable } from "@workspace/db";
 import { eq, desc, and, count } from "drizzle-orm";
 import { requireAuth, type AuthRequest } from "../lib/auth-middleware";
 import {
@@ -113,9 +113,13 @@ router.get("/vetting-requests/:id", requireAuth, async (req: AuthRequest, res): 
 
   if (!row) { res.status(404).json({ message: "Not found" }); return; }
 
-  const steps = await db.select().from(vettingStepsTable)
-    .where(eq(vettingStepsTable.vettingRequestId, id))
-    .orderBy(vettingStepsTable.order);
+  const [steps, refs] = await Promise.all([
+    db.select().from(vettingStepsTable)
+      .where(eq(vettingStepsTable.vettingRequestId, id))
+      .orderBy(vettingStepsTable.order),
+    db.select().from(referenceContactsTable)
+      .where(eq(referenceContactsTable.vettingRequestId, id)),
+  ]);
 
   res.json({
     ...formatRequest(row.vr, row.pkg?.name ?? "", row.pkg?.priceKsh ?? 0),
@@ -127,6 +131,19 @@ router.get("/vetting-requests/:id", requireAuth, async (req: AuthRequest, res): 
       notes: s.notes,
       completedAt: s.completedAt?.toISOString() ?? null,
     })),
+    references: refs.map(r => ({
+      id: r.id,
+      name: r.name,
+      phone: r.phone,
+      relationship: r.relationship,
+      employerName: r.employerName,
+      yearsWorked: r.yearsWorked,
+      callStatus: r.callStatus,
+      callSummary: r.callSummary,
+    })),
+    stepProgress: steps.length > 0
+      ? { completed: steps.filter(s => s.status === "completed").length, total: steps.length }
+      : null,
   });
 });
 

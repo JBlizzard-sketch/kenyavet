@@ -4,7 +4,7 @@ import AppLayout from "@/components/layout/AppLayout";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import { formatDate, formatKsh, getStatusColor, getStatusLabel, getTrustScoreBg, getTrustScoreLabel } from "@/lib/utils";
-import { ArrowLeft, CheckCircle, Clock, XCircle, AlertCircle, FileText, Shield, Smartphone, X, Loader2 } from "lucide-react";
+import { ArrowLeft, CheckCircle, Clock, XCircle, AlertCircle, FileText, Shield, Smartphone, X, Loader2, Phone, UserCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface VettingStep {
@@ -13,6 +13,17 @@ interface VettingStep {
   status: string;
   notes: string | null;
   completedAt: string | null;
+}
+
+interface ReferenceContact {
+  id: number;
+  name: string;
+  phone: string;
+  relationship: string;
+  employerName: string;
+  yearsWorked: number | null;
+  callStatus: string;
+  callSummary: string | null;
 }
 
 interface RequestDetail {
@@ -32,6 +43,8 @@ interface RequestDetail {
   createdAt: string;
   updatedAt: string;
   steps: VettingStep[];
+  references: ReferenceContact[];
+  stepProgress: { completed: number; total: number } | null;
 }
 
 type PaymentStage = "idle" | "entering" | "processing" | "success" | "error";
@@ -320,9 +333,54 @@ export default function VettingRequestDetail() {
               </div>
             </div>
 
+            {/* Reference contacts (read-only for employer) */}
+            {req.references && req.references.length > 0 && (
+              <div className="bg-card rounded-xl border border-card-border p-5">
+                <h2 className="font-semibold text-foreground mb-1 text-sm uppercase tracking-wide text-muted-foreground flex items-center gap-2">
+                  <UserCheck className="w-4 h-4" /> Reference Contacts
+                </h2>
+                <p className="text-xs text-muted-foreground mb-4">Our ops team will contact these references during verification</p>
+                <div className="space-y-3">
+                  {req.references.map((ref, i) => (
+                    <div key={ref.id} className="flex items-start justify-between gap-3 py-2 border-b border-border last:border-0">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-medium text-foreground">{ref.name}</p>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+                            ref.callStatus === "completed" ? "bg-emerald-100 text-emerald-700" :
+                            ref.callStatus === "no_answer" || ref.callStatus === "busy" ? "bg-amber-100 text-amber-700" :
+                            "bg-muted text-muted-foreground"
+                          }`}>
+                            {ref.callStatus === "pending" ? "Awaiting call" :
+                             ref.callStatus === "completed" ? "Called" :
+                             ref.callStatus.replace("_", " ")}
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted-foreground">{ref.relationship} · {ref.employerName}</p>
+                        {ref.callSummary && (
+                          <p className="text-xs text-emerald-700 bg-emerald-50 rounded px-2 py-1 mt-1">{ref.callSummary}</p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0 pt-0.5">
+                        <Phone className="w-3.5 h-3.5 text-muted-foreground" />
+                        <span className="text-xs text-muted-foreground">{ref.phone}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Vetting steps */}
             <div className="bg-card rounded-xl border border-card-border p-5">
-              <h2 className="font-semibold text-foreground mb-4 text-sm uppercase tracking-wide text-muted-foreground">Verification Steps</h2>
+              <h2 className="font-semibold text-foreground mb-4 text-sm uppercase tracking-wide text-muted-foreground flex items-center justify-between">
+                Verification Steps
+                {req.stepProgress && (
+                  <span className="text-xs font-normal text-muted-foreground normal-case tracking-normal">
+                    {req.stepProgress.completed}/{req.stepProgress.total} complete
+                  </span>
+                )}
+              </h2>
               {req.steps.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Steps will appear once vetting begins.</p>
               ) : (
