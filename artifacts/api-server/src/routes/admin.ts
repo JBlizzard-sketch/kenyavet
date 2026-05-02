@@ -203,6 +203,77 @@ router.post("/admin/requests/:id/notify", requireAuth, requireRole("admin", "ops
   res.json({ sent, message: sent ? "Email sent successfully" : "Email logged (SMTP not configured)" });
 });
 
+router.get("/admin/requests/:id/detail", requireAuth, requireRole("admin", "ops"), async (req: AuthRequest, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ message: "Invalid ID" }); return; }
+
+  const [row] = await db
+    .select({ vr: vettingRequestsTable, pkg: vettingPackagesTable, emp: usersTable })
+    .from(vettingRequestsTable)
+    .leftJoin(vettingPackagesTable, eq(vettingRequestsTable.packageId, vettingPackagesTable.id))
+    .leftJoin(usersTable, eq(vettingRequestsTable.employerId, usersTable.id))
+    .where(eq(vettingRequestsTable.id, id));
+
+  if (!row) { res.status(404).json({ message: "Not found" }); return; }
+
+  const steps = await db.select().from(vettingStepsTable)
+    .where(eq(vettingStepsTable.vettingRequestId, id))
+    .orderBy(vettingStepsTable.order);
+
+  res.json({
+    id: row.vr.id,
+    workerName: row.vr.workerName,
+    workerRole: row.vr.workerRole,
+    workerIdNumber: row.vr.workerIdNumber,
+    workerPhone: row.vr.workerPhone,
+    workerAddress: row.vr.workerAddress,
+    packageName: row.pkg?.name ?? "",
+    packageSlug: row.pkg?.slug ?? "",
+    priceKsh: row.pkg?.priceKsh ?? 0,
+    status: row.vr.status,
+    trustScore: row.vr.trustScore,
+    reportId: row.vr.reportId,
+    adminNotes: row.vr.adminNotes ?? null,
+    employerName: row.emp?.name ?? "",
+    employerEmail: row.emp?.email ?? "",
+    employerPhone: row.emp?.phone ?? null,
+    employerNeighbourhood: row.emp?.neighbourhood ?? null,
+    createdAt: row.vr.createdAt.toISOString(),
+    updatedAt: row.vr.updatedAt.toISOString(),
+    steps: steps.map(s => ({
+      id: s.id,
+      stepName: s.stepName,
+      stepKey: s.stepKey,
+      status: s.status,
+      order: s.order,
+      notes: s.notes,
+      completedAt: s.completedAt?.toISOString() ?? null,
+    })),
+  });
+});
+
+router.patch("/admin/steps/:stepId", requireAuth, requireRole("admin", "ops"), async (req: AuthRequest, res): Promise<void> => {
+  const stepId = parseInt(req.params.stepId as string, 10);
+  if (isNaN(stepId)) { res.status(400).json({ message: "Invalid step ID" }); return; }
+
+  const { status, notes } = req.body;
+  if (!status) { res.status(400).json({ message: "status is required" }); return; }
+
+  const update: Record<string, unknown> = { status };
+  if (notes !== undefined) update.notes = notes;
+  if (status === "completed") update.completedAt = new Date();
+  else if (status !== "completed") update.completedAt = null;
+
+  const [step] = await db.update(vettingStepsTable)
+    .set(update)
+    .where(eq(vettingStepsTable.id, stepId))
+    .returning();
+
+  if (!step) { res.status(404).json({ message: "Step not found" }); return; }
+
+  res.json({ id: step.id, status: step.status, message: "Step updated" });
+});
+
 router.get("/admin/stats", requireAuth, requireRole("admin", "ops"), async (_req, res): Promise<void> => {
   const allRequests = await db.select().from(vettingRequestsTable);
   const [{ totalUsers }] = await db.select({ totalUsers: count() }).from(usersTable);

@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import { db, workersTable } from "@workspace/db";
-import { eq, ilike, gte, or, count, desc } from "drizzle-orm";
+import { db, workersTable, reportsTable, vettingRequestsTable } from "@workspace/db";
+import { eq, ilike, gte, or, count, desc, ne } from "drizzle-orm";
 
 const router: IRouter = Router();
 
@@ -37,11 +37,54 @@ router.get("/workers", async (req, res): Promise<void> => {
     .limit(limit)
     .offset(offset);
 
+  // Also pull verified workers from completed reports (deduped by name+role)
+  const reportWorkers = await db
+    .select({ r: reportsTable, vr: vettingRequestsTable })
+    .from(reportsTable)
+    .innerJoin(vettingRequestsTable, eq(reportsTable.vettingRequestId, vettingRequestsTable.id))
+    .where(eq(vettingRequestsTable.status, "completed"))
+    .orderBy(desc(reportsTable.overallTrustScore));
+
+  const fromReports = reportWorkers
+    .filter(row => {
+      const nameMatch = query ? row.r.workerName.toLowerCase().includes(query.toLowerCase()) : true;
+      const roleMatch = role ? row.r.workerRole.toLowerCase().includes(role.toLowerCase()) : true;
+      const scoreMatch = minScore ? (row.r.overallTrustScore >= minScore) : true;
+      // Don't show if already in workersList by name
+      const alreadyIn = workersList.some(w => w.name.toLowerCase() === row.r.workerName.toLowerCase());
+      return nameMatch && roleMatch && scoreMatch && !alreadyIn;
+    })
+    .map(row => ({
+      id: -row.r.id,
+      name: row.r.workerName,
+      role: row.r.workerRole,
+      trustScore: row.r.overallTrustScore,
+      photoUrl: row.r.workerPhotoUrl,
+      neighbourhood: row.vr.workerAddress ?? null,
+      yearsExperience: null,
+      languages: [] as string[],
+      badges: (() => {
+        const b: string[] = [];
+        if (row.r.identityVerified) b.push("Identity Verified");
+        if (row.r.dciCertificateStatus === "verified") b.push("DCI Cleared");
+        if (row.r.referencesSummary) b.push("References Checked");
+        if (row.r.socialMediaSummary) b.push("Social Media Reviewed");
+        return b;
+      })(),
+      qrCode: null,
+      vetCount: 1,
+      verifiedAt: row.r.completedAt.toISOString(),
+      createdAt: row.r.createdAt.toISOString(),
+      fromReport: true,
+      reportId: row.r.id,
+    }));
+
   const [{ total }] = await db.select({ total: count() }).from(workersTable);
+  const allWorkers = [...workersList.map(w => ({ ...formatWorker(w), fromReport: false, reportId: null })), ...fromReports];
 
   res.json({
-    workers: workersList.map(formatWorker),
-    total: Number(total),
+    workers: allWorkers.slice(offset, offset + limit),
+    total: Number(total) + fromReports.length,
     page,
     limit,
   });

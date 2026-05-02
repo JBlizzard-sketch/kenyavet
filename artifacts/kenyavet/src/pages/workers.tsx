@@ -3,8 +3,8 @@ import { Link } from "wouter";
 import AppLayout from "@/components/layout/AppLayout";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
-import { getTrustScoreBg, getTrustScoreLabel } from "@/lib/utils";
-import { Search, Shield, Star, QrCode } from "lucide-react";
+import { getTrustScoreBg, getTrustScoreLabel, formatDate } from "@/lib/utils";
+import { Search, Shield, CheckCircle, QrCode, FileText, Users } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
@@ -20,9 +20,17 @@ interface Worker {
   qrCode: string | null;
   vetCount: number;
   verifiedAt: string | null;
+  fromReport?: boolean;
+  reportId?: number | null;
 }
 
 const roleFilters = ["All", "Housekeeper", "Driver", "Nanny", "Cook", "Gardener", "Security Guard"];
+const minScoreOptions = [
+  { label: "Any score", value: "" },
+  { label: "80+ (Highly Trusted)", value: "80" },
+  { label: "70+ (Trusted)", value: "70" },
+  { label: "60+ (Acceptable)", value: "60" },
+];
 
 export default function Workers() {
   const { token } = useAuth();
@@ -30,64 +38,106 @@ export default function Workers() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("All");
+  const [minScore, setMinScore] = useState("");
 
   useEffect(() => {
-    apiFetch<{ workers: Worker[] }>("/workers", { token }).then(d => {
+    const params = new URLSearchParams();
+    if (search) params.set("query", search);
+    if (roleFilter !== "All") params.set("role", roleFilter);
+    if (minScore) params.set("minScore", minScore);
+
+    apiFetch<{ workers: Worker[] }>(`/workers?${params}`, { token }).then(d => {
       setWorkers(d.workers);
     }).catch(() => setWorkers([])).finally(() => setLoading(false));
-  }, [token]);
+  }, [token, search, roleFilter, minScore]);
 
-  const filtered = workers.filter(w => {
-    const matchesSearch =
-      w.name.toLowerCase().includes(search.toLowerCase()) ||
-      (w.neighbourhood || "").toLowerCase().includes(search.toLowerCase());
-    const matchesRole = roleFilter === "All" || w.role === roleFilter;
-    return matchesSearch && matchesRole;
-  });
+  const scoreColor = (score: number | null) => {
+    if (!score) return "bg-muted rounded-full";
+    if (score >= 80) return "bg-emerald-500 rounded-full";
+    if (score >= 60) return "bg-amber-500 rounded-full";
+    return "bg-red-500 rounded-full";
+  };
 
   return (
     <AppLayout>
       <div className="p-6 max-w-6xl mx-auto">
-        <div className="mb-6">
-          <h1 className="text-2xl font-serif font-bold text-foreground">Verified Workers</h1>
-          <p className="text-muted-foreground text-sm mt-0.5">Browse KenyaVet-verified domestic workers in Nairobi</p>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+          <div>
+            <h1 className="text-2xl font-serif font-bold text-foreground">Verified Workers</h1>
+            <p className="text-muted-foreground text-sm mt-0.5">
+              {loading ? "Loading…" : `${workers.length} KenyaVet-verified workers`}
+            </p>
+          </div>
+          <Link href="/vetting-requests/new">
+            <Button className="gap-2">
+              <Shield className="w-4 h-4" />
+              Vet a Worker
+            </Button>
+          </Link>
         </div>
 
         {/* Filters */}
         <div className="flex flex-col sm:flex-row gap-3 mb-6">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input className="pl-9" placeholder="Search by name or neighbourhood…" value={search} onChange={e => setSearch(e.target.value)} />
+            <Input
+              className="pl-9"
+              placeholder="Search by name or neighbourhood…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
           </div>
-          <div className="flex gap-2 flex-wrap">
-            {roleFilters.map(role => (
-              <button
-                key={role}
-                onClick={() => setRoleFilter(role)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                  roleFilter === role
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-muted-foreground hover:bg-muted/80"
-                }`}
-              >
-                {role}
-              </button>
+          <select
+            value={minScore}
+            onChange={e => setMinScore(e.target.value)}
+            className="px-3 py-2 rounded-lg border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+          >
+            {minScoreOptions.map(o => (
+              <option key={o.value} value={o.value}>{o.label}</option>
             ))}
-          </div>
+          </select>
+        </div>
+
+        {/* Role filter pills */}
+        <div className="flex gap-2 flex-wrap mb-6">
+          {roleFilters.map(role => (
+            <button
+              key={role}
+              onClick={() => setRoleFilter(role)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                roleFilter === role
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-muted-foreground hover:bg-muted/80"
+              }`}
+            >
+              {role}
+            </button>
+          ))}
         </div>
 
         {loading ? (
-          <div className="py-16 text-center text-muted-foreground text-sm">Loading…</div>
-        ) : filtered.length === 0 ? (
-          <div className="py-16 text-center text-muted-foreground text-sm">No workers found.</div>
+          <div className="py-16 text-center text-muted-foreground text-sm">Loading workers…</div>
+        ) : workers.length === 0 ? (
+          <div className="py-16 text-center">
+            <Users className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
+            <p className="text-muted-foreground text-sm mb-4">No verified workers found.</p>
+            <Link href="/vetting-requests/new">
+              <Button size="sm">Vet your first worker</Button>
+            </Link>
+          </div>
         ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filtered.map(worker => (
-              <div key={worker.id} className="bg-card rounded-xl border border-card-border p-5 flex flex-col">
+            {workers.map(worker => (
+              <div key={worker.id} className="bg-card rounded-xl border border-card-border p-5 flex flex-col hover:shadow-sm transition-shadow">
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex items-center gap-3">
-                    <div className="w-11 h-11 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                    <div className="w-11 h-11 rounded-full bg-primary/10 flex items-center justify-center shrink-0 relative">
                       <span className="text-primary font-bold">{worker.name.charAt(0)}</span>
+                      {worker.fromReport && (
+                        <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-emerald-500 flex items-center justify-center">
+                          <Shield className="w-2.5 h-2.5 text-white" />
+                        </div>
+                      )}
                     </div>
                     <div>
                       <p className="font-semibold text-foreground text-sm">{worker.name}</p>
@@ -109,7 +159,7 @@ export default function Workers() {
                     </div>
                     <div className="h-1.5 bg-muted rounded-full overflow-hidden">
                       <div
-                        className={`h-full rounded-full ${worker.trustScore >= 80 ? "bg-emerald-500" : worker.trustScore >= 60 ? "bg-amber-500" : "bg-red-500"}`}
+                        className={`h-full rounded-full transition-all ${scoreColor(worker.trustScore)}`}
                         style={{ width: `${worker.trustScore}%` }}
                       />
                     </div>
@@ -119,13 +169,20 @@ export default function Workers() {
                 <div className="space-y-1.5 text-xs text-muted-foreground mb-3">
                   {worker.neighbourhood && <div>📍 {worker.neighbourhood}</div>}
                   {worker.yearsExperience && <div>⏱ {worker.yearsExperience} years experience</div>}
-                  {worker.vetCount > 0 && <div><Shield className="w-3 h-3 inline mr-1 text-primary" />{worker.vetCount} vet{worker.vetCount !== 1 ? "s" : ""} completed</div>}
+                  {worker.verifiedAt && (
+                    <div className="flex items-center gap-1">
+                      <Shield className="w-3 h-3 text-primary" />
+                      Verified {formatDate(worker.verifiedAt)}
+                    </div>
+                  )}
                 </div>
 
                 {worker.badges && worker.badges.length > 0 && (
                   <div className="flex flex-wrap gap-1.5 mb-3">
                     {worker.badges.slice(0, 3).map(badge => (
-                      <span key={badge} className="text-xs px-2 py-0.5 bg-primary/10 text-primary rounded-full">{badge}</span>
+                      <span key={badge} className="flex items-center gap-1 text-xs px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded-full border border-emerald-200">
+                        <CheckCircle className="w-2.5 h-2.5" /> {badge}
+                      </span>
                     ))}
                   </div>
                 )}
@@ -136,16 +193,25 @@ export default function Workers() {
                   </div>
                 )}
 
-                <div className="mt-auto flex gap-2">
+                <div className="mt-auto flex gap-2 flex-wrap">
                   {worker.qrCode && (
                     <Link href={`/verify?qr=${worker.qrCode}`}>
-                      <Button size="sm" variant="outline" className="gap-1.5">
+                      <Button size="sm" variant="outline" className="gap-1.5 h-8 text-xs">
                         <QrCode className="w-3 h-3" /> Verify
                       </Button>
                     </Link>
                   )}
-                  <Link href="/vetting-requests/new">
-                    <Button size="sm" variant="outline" className="flex-1">Vet Similar</Button>
+                  {worker.fromReport && worker.reportId && (
+                    <Link href={`/verify?reportId=${worker.reportId}`}>
+                      <Button size="sm" variant="outline" className="gap-1.5 h-8 text-xs">
+                        <Shield className="w-3 h-3" /> Verify
+                      </Button>
+                    </Link>
+                  )}
+                  <Link href="/vetting-requests/new" className="flex-1">
+                    <Button size="sm" variant="ghost" className="w-full h-8 text-xs">
+                      Vet Similar
+                    </Button>
                   </Link>
                 </div>
               </div>
