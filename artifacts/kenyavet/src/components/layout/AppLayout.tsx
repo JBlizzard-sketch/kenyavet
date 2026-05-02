@@ -3,11 +3,12 @@ import { Link, useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useTheme } from "@/lib/theme";
 import {
   LayoutDashboard, ClipboardList, Users, FileText,
   UserCog, Settings, LogOut, Menu, X, Shield,
   ChevronRight, Bell, CheckCircle, TrendingUp, CreditCard, AlertCircle,
-  ClipboardCheck, User, Search, Loader2,
+  ClipboardCheck, User, Search, Loader2, Sun, Moon,
 } from "lucide-react";
 
 interface NavItem {
@@ -82,6 +83,7 @@ function formatRelative(dateStr: string) {
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, token, logout } = useAuth();
+  const { theme, toggle: toggleTheme } = useTheme();
   const [location, navigate] = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
@@ -189,10 +191,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           onClick={() => setSearchOpen(false)}
         >
           <div
-            className="w-full max-w-xl bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden"
+            className="w-full max-w-xl bg-popover rounded-2xl shadow-2xl border border-popover-border overflow-hidden"
             onClick={e => e.stopPropagation()}
           >
-            <div className="flex items-center gap-3 px-4 py-3.5 border-b border-gray-100">
+            <div className="flex items-center gap-3 px-4 py-3.5 border-b border-border">
               {searchLoading
                 ? <Loader2 className="w-4 h-4 text-muted-foreground animate-spin shrink-0" />
                 : <Search className="w-4 h-4 text-muted-foreground shrink-0" />
@@ -261,7 +263,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               </div>
             ) : null}
 
-            <div className="border-t border-gray-100 px-4 py-2 flex items-center gap-4 text-[10px] text-muted-foreground">
+            <div className="border-t border-border px-4 py-2 flex items-center gap-4 text-[10px] text-muted-foreground">
               <span className="flex items-center gap-1"><kbd className="rounded border border-border bg-muted px-1">↑↓</kbd> navigate</span>
               <span className="flex items-center gap-1"><kbd className="rounded border border-border bg-muted px-1">↵</kbd> open</span>
               <span className="flex items-center gap-1"><kbd className="rounded border border-border bg-muted px-1">Esc</kbd> close</span>
@@ -378,6 +380,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
           <div className="flex-1" />
 
+          {/* Dark mode toggle */}
+          <button
+            onClick={toggleTheme}
+            className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded-md"
+            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+          >
+            {theme === "dark" ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+          </button>
+
           {/* Notifications */}
           <div className="relative" ref={notifRef}>
             <button
@@ -393,7 +404,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </button>
 
             {notifOpen && (
-              <div className="absolute right-0 mt-2 w-80 bg-white border border-border rounded-xl shadow-lg z-50 overflow-hidden">
+              <div className="absolute right-0 mt-2 w-80 bg-popover border border-popover-border rounded-xl shadow-lg z-50 overflow-hidden">
                 <div className="px-4 py-3 border-b border-border flex items-center justify-between">
                   <p className="font-semibold text-sm text-foreground">Notifications</p>
                   <span className="text-xs text-muted-foreground">{activity.length} updates</span>

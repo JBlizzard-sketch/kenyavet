@@ -27,6 +27,7 @@ import Billing from "@/pages/billing";
 import ForgotPassword from "@/pages/forgot-password";
 import ResetPassword from "@/pages/reset-password";
 import WorkerPublic from "@/pages/worker-public";
+import ReportPublic from "@/pages/report-public";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient({
@@ -47,6 +48,7 @@ function Router() {
       <Route path="/register" component={Register} />
       <Route path="/verify" component={Verify} />
       <Route path="/w/:qrCode" component={WorkerPublic} />
+      <Route path="/r/:shareToken" component={ReportPublic} />
       <Route path="/forgot-password" component={ForgotPassword} />
       <Route path="/reset-password" component={ResetPassword} />
 

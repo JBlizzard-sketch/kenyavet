@@ -6,7 +6,7 @@ import { apiFetch } from "@/lib/api";
 import { formatDate, getTrustScoreBg, getTrustScoreLabel } from "@/lib/utils";
 import {
   ArrowLeft, Printer, Shield, CheckCircle, AlertCircle, QrCode, FileText,
-  User, Briefcase, Hash, Phone, MapPin,
+  User, Briefcase, Hash, Phone, MapPin, Share2, Copy, Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import QrCard from "@/components/QrCard";
@@ -116,6 +116,9 @@ export default function ReportDetail() {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [showQr, setShowQr] = useState(false);
+  const [sharing, setSharing] = useState(false);
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -124,6 +127,30 @@ export default function ReportDetail() {
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false));
   }, [id, token]);
+
+  async function handleShare() {
+    if (!id || !token) return;
+    setSharing(true);
+    try {
+      const { shareToken } = await apiFetch<{ shareToken: string; expiresAt: string }>(
+        `/reports/${id}/share`, { token, method: "POST" }
+      );
+      const base = window.location.origin + import.meta.env.BASE_URL.replace(/\/$/, "");
+      setShareUrl(`${base}/r/${shareToken}`);
+    } catch {
+      /* noop */
+    } finally {
+      setSharing(false);
+    }
+  }
+
+  function copyShareUrl() {
+    if (!shareUrl) return;
+    navigator.clipboard.writeText(shareUrl).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
 
   if (loading) return <AppLayout><div className="p-6 text-muted-foreground text-sm">Loading report…</div></AppLayout>;
   if (notFound || !report) return (
@@ -225,6 +252,36 @@ export default function ReportDetail() {
               <Button variant="outline" className="gap-2 w-full" onClick={() => setShowQr(true)}>
                 <QrCode className="w-4 h-4" /> QR Certificate Card
               </Button>
+              {!shareUrl ? (
+                <Button variant="outline" className="gap-2 w-full" onClick={handleShare} disabled={sharing}>
+                  {sharing
+                    ? <><span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> Generating…</>
+                    : <><Share2 className="w-4 h-4" /> Share Report Link</>
+                  }
+                </Button>
+              ) : (
+                <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-2">
+                  <p className="text-xs text-muted-foreground">Shareable link (expires 48 h)</p>
+                  <div className="flex items-center gap-2">
+                    <input
+                      readOnly
+                      value={shareUrl}
+                      className="flex-1 text-xs bg-background border border-border rounded-md px-2 py-1.5 text-foreground outline-none truncate"
+                      onClick={e => (e.target as HTMLInputElement).select()}
+                    />
+                    <button
+                      onClick={copyShareUrl}
+                      className="shrink-0 p-1.5 rounded-md border border-border bg-background hover:bg-muted transition-colors"
+                      title="Copy link"
+                    >
+                      {copied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5 text-muted-foreground" />}
+                    </button>
+                  </div>
+                  <button onClick={() => setShareUrl(null)} className="text-[10px] text-muted-foreground hover:text-foreground transition-colors">
+                    Revoke and hide link
+                  </button>
+                </div>
+              )}
               <Link href={`/vetting-requests/${report.requestId}`}>
                 <Button variant="ghost" className="gap-2 w-full text-sm" size="sm">
                   View Vetting Request →

@@ -1,7 +1,16 @@
 import { Router, type IRouter } from "express";
+import { randomBytes } from "crypto";
 import { db, reportsTable, vettingRequestsTable, usersTable } from "@workspace/db";
 import { eq, and, desc } from "drizzle-orm";
 import { requireAuth, requireRole, type AuthRequest } from "../lib/auth-middleware";
+
+interface ShareEntry {
+  reportId: number;
+  sharedBy: string;
+  expiresAt: Date;
+}
+
+const shareTokens = new Map<string, ShareEntry>();
 
 const router: IRouter = Router();
 
@@ -41,6 +50,68 @@ router.get("/reports/verify/:reportId", async (req, res): Promise<void> => {
     verifiedAt: r.completedAt.toISOString(),
     vetCount: vr.id ? 1 : 0,
   });
+});
+
+// PUBLIC — retrieve a shared report by its share token
+router.get("/reports/share/:shareToken", async (req, res): Promise<void> => {
+  const entry = shareTokens.get(req.params.shareToken as string);
+  if (!entry || entry.expiresAt < new Date()) {
+    shareTokens.delete(req.params.shareToken as string);
+    res.status(404).json({ message: "Share link expired or not found" });
+    return;
+  }
+
+  const [row] = await db
+    .select({ r: reportsTable, vr: vettingRequestsTable })
+    .from(reportsTable)
+    .innerJoin(vettingRequestsTable, eq(reportsTable.vettingRequestId, vettingRequestsTable.id))
+    .where(eq(reportsTable.id, entry.reportId));
+
+  if (!row) { res.status(404).json({ message: "Report not found" }); return; }
+
+  const { r, vr } = row;
+  const breakdown = r.scoreBreakdown as Record<string, number | null> | null;
+  const score = r.overallTrustScore;
+
+  res.json({
+    workerName: r.workerName,
+    workerRole: r.workerRole,
+    workerPhotoUrl: r.workerPhotoUrl,
+    packageName: r.packageName,
+    trustScore: score,
+    recommendation: score >= 80 ? "hire" : score >= 60 ? "caution" : "do_not_hire",
+    summary: r.summary,
+    identityStatus: r.identityVerified ? "passed" : "failed",
+    dciStatus: r.dciCertificateStatus === "verified" ? "passed" : r.dciCertificateStatus === "not_found" ? "failed" : "pending",
+    referenceStatus: breakdown?.references != null ? "passed" : "pending",
+    socialMediaStatus: r.socialMediaSummary ? "passed" : "pending",
+    scoreBreakdown: breakdown,
+    flags: (r.flags as string[] | null) ?? [],
+    createdAt: r.completedAt.toISOString(),
+    sharedBy: entry.sharedBy,
+    expiresAt: entry.expiresAt.toISOString(),
+  });
+});
+
+// Generate a share token for a report (48-hour expiry)
+router.post("/reports/:id/share", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ message: "Invalid ID" }); return; }
+
+  const [row] = await db
+    .select({ r: reportsTable, vr: vettingRequestsTable, emp: usersTable })
+    .from(reportsTable)
+    .innerJoin(vettingRequestsTable, eq(reportsTable.vettingRequestId, vettingRequestsTable.id))
+    .innerJoin(usersTable, eq(vettingRequestsTable.employerId, usersTable.id))
+    .where(and(eq(reportsTable.id, id), eq(vettingRequestsTable.employerId, req.userId!)));
+
+  if (!row) { res.status(404).json({ message: "Not found or access denied" }); return; }
+
+  const token = randomBytes(24).toString("hex");
+  const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
+  shareTokens.set(token, { reportId: id, sharedBy: row.emp.name, expiresAt });
+
+  res.json({ shareToken: token, expiresAt: expiresAt.toISOString() });
 });
 
 router.get("/reports", requireAuth, async (req: AuthRequest, res): Promise<void> => {
