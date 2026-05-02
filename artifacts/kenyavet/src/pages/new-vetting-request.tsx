@@ -46,6 +46,7 @@ export default function NewVettingRequest() {
   const { token } = useAuth();
   const [packages, setPackages] = useState<Package[]>([]);
   const [selectedPkg, setSelectedPkg] = useState<Package | null>(null);
+  const [prefilled, setPrefilled] = useState(false);
   const [form, setForm] = useState({
     workerName: "", workerRole: "", workerIdNumber: "", workerPhone: "",
     workerEmail: "", notes: "", packageId: "",
@@ -53,6 +54,24 @@ export default function NewVettingRequest() {
   const [refs, setRefs] = useState<RefContact[]>([emptyRef()]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const prefillName = params.get("workerName") ?? "";
+    const prefillRole = params.get("workerRole") ?? "";
+    const prefillId = params.get("workerIdNumber") ?? "";
+    const prefillPhone = params.get("workerPhone") ?? "";
+    if (prefillName || prefillRole || prefillId) {
+      setForm(f => ({
+        ...f,
+        workerName: prefillName,
+        workerRole: prefillRole,
+        workerIdNumber: prefillId,
+        workerPhone: prefillPhone,
+      }));
+      setPrefilled(true);
+    }
+  }, []);
 
   useEffect(() => {
     apiFetch<{ packages: Package[] }>("/packages").then(d => {
@@ -140,7 +159,13 @@ export default function NewVettingRequest() {
         </button>
 
         <h1 className="text-2xl font-serif font-bold text-foreground mb-1">New Vetting Request</h1>
-        <p className="text-muted-foreground text-sm mb-8">Submit a domestic worker for background verification</p>
+        <p className="text-muted-foreground text-sm mb-4">Submit a domestic worker for background verification</p>
+        {prefilled && (
+          <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-2.5 mb-6 flex items-center gap-2 text-sm text-blue-800">
+            <CheckCircle className="w-4 h-4 text-blue-500 shrink-0" />
+            Worker details pre-filled from a previous request — review and update as needed before submitting.
+          </div>
+        )}
 
         {error && (
           <div className="bg-red-50 text-red-700 text-sm px-4 py-2.5 rounded-lg border border-red-100 mb-6">

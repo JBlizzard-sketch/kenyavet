@@ -7,7 +7,7 @@ import { toast } from "@/hooks/use-toast";
 import { formatDate, formatKsh, getStatusColor, getStatusLabel, getTrustScoreBg } from "@/lib/utils";
 import {
   Users, ClipboardList, Shield, Search,
-  ChevronRight, X, Save, Bell, FileEdit, CheckCircle, Loader2, BarChart3, TrendingUp, FileText,
+  ChevronRight, X, Save, Bell, FileEdit, CheckCircle, Loader2, BarChart3, TrendingUp, FileText, Download,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -81,6 +81,17 @@ interface EmployerRecord {
   inProgressRequests: number;
   totalSpendKsh: number;
   lastRequestAt: string | null;
+}
+
+interface ActivityLogItem {
+  id: number;
+  type: string;
+  message: string;
+  workerName: string | null;
+  linkId: number | null;
+  createdAt: string;
+  userName: string;
+  userRole: string;
 }
 
 function DetailDrawer({
@@ -286,10 +297,11 @@ export default function Admin() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [updatingId, setUpdatingId] = useState<number | null>(null);
   const [drawer, setDrawer] = useState<AdminRequest | null>(null);
-  const [activeTab, setActiveTab] = useState<"requests" | "analytics" | "reports" | "employers">("requests");
+  const [activeTab, setActiveTab] = useState<"requests" | "analytics" | "reports" | "employers" | "activity">("requests");
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
   const [reports, setReports] = useState<AdminReport[]>([]);
   const [employers, setEmployers] = useState<EmployerRecord[]>([]);
+  const [activityLog, setActivityLog] = useState<ActivityLogItem[]>([]);
 
   async function load() {
     try {
@@ -324,10 +336,18 @@ export default function Admin() {
     } catch {}
   }
 
+  async function loadActivity() {
+    try {
+      const data = await apiFetch<{ activity: ActivityLogItem[] }>("/admin/activity", { token });
+      setActivityLog(data.activity);
+    } catch {}
+  }
+
   useEffect(() => { load(); }, [token]);
   useEffect(() => { if (activeTab === "analytics") loadAnalytics(); }, [activeTab, token]);
   useEffect(() => { if (activeTab === "reports") loadReports(); }, [activeTab, token]);
   useEffect(() => { if (activeTab === "employers") loadEmployers(); }, [activeTab, token]);
+  useEffect(() => { if (activeTab === "activity") loadActivity(); }, [activeTab, token]);
 
   async function updateStatus(id: number, status: string) {
     setUpdatingId(id);
@@ -386,7 +406,7 @@ export default function Admin() {
             <p className="text-muted-foreground text-sm mt-0.5">Manage all vetting requests and operations</p>
           </div>
           <div className="flex gap-2 flex-wrap">
-            {(["requests", "analytics", "reports", "employers"] as const).map(tab => (
+            {(["requests", "analytics", "reports", "employers", "activity"] as const).map(tab => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -399,11 +419,13 @@ export default function Admin() {
                 {tab === "requests" ? <ClipboardList className="w-3.5 h-3.5" />
                   : tab === "analytics" ? <BarChart3 className="w-3.5 h-3.5" />
                   : tab === "reports" ? <FileText className="w-3.5 h-3.5" />
-                  : <Users className="w-3.5 h-3.5" />}
+                  : tab === "employers" ? <Users className="w-3.5 h-3.5" />
+                  : <Bell className="w-3.5 h-3.5" />}
                 {tab === "requests" ? "Requests"
                   : tab === "analytics" ? "Analytics"
                   : tab === "reports" ? "Reports"
-                  : "Employers"}
+                  : tab === "employers" ? "Employers"
+                  : "Activity"}
               </button>
             ))}
           </div>
@@ -620,6 +642,40 @@ export default function Admin() {
               <SelectItem value="cancelled">Cancelled</SelectItem>
             </SelectContent>
           </Select>
+          <Button
+            variant="outline"
+            className="gap-2 shrink-0"
+            onClick={() => {
+              const headers = ["ID","Worker","Role","ID Number","Package","Price (Ksh)","Status","Trust Score","Employer","Employer Email","Neighbourhood","Submitted","Updated"];
+              const rows = filtered.map(r => [
+                r.id,
+                `"${r.workerName}"`,
+                `"${r.workerRole}"`,
+                r.workerIdNumber,
+                `"${r.packageName}"`,
+                r.priceKsh,
+                r.status,
+                r.trustScore ?? "",
+                `"${r.employerName}"`,
+                `"${r.employerEmail}"`,
+                `"${r.employerNeighbourhood ?? ""}"`,
+                r.createdAt.slice(0,10),
+                r.updatedAt.slice(0,10),
+              ].join(","));
+              const csv = [headers.join(","), ...rows].join("\n");
+              const blob = new Blob([csv], { type: "text/csv" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `kenyavet-requests-${new Date().toISOString().slice(0,10)}.csv`;
+              a.click();
+              URL.revokeObjectURL(url);
+            }}
+            disabled={filtered.length === 0}
+          >
+            <Download className="w-4 h-4" />
+            Export CSV
+          </Button>
         </div>
 
         <div className="bg-card rounded-xl border border-card-border overflow-hidden">
@@ -713,6 +769,81 @@ export default function Admin() {
           )}
         </div>
         </>
+        )}
+
+        {/* Activity log tab */}
+        {activeTab === "activity" && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-muted-foreground">
+                {activityLog.length} event{activityLog.length !== 1 ? "s" : ""} recorded
+              </p>
+              <button
+                onClick={loadActivity}
+                className="text-xs text-primary hover:underline"
+              >
+                Refresh
+              </button>
+            </div>
+            {activityLog.length === 0 ? (
+              <div className="py-16 text-center text-muted-foreground text-sm">
+                <Bell className="w-8 h-8 mx-auto mb-3 opacity-30" />
+                No activity recorded yet.
+              </div>
+            ) : (
+              <div className="bg-card rounded-xl border border-card-border divide-y divide-border">
+                {activityLog.map(item => {
+                  const icon = item.type === "report_ready"
+                    ? <CheckCircle className="w-4 h-4 text-emerald-500" />
+                    : item.type === "vetting_in_progress"
+                    ? <TrendingUp className="w-4 h-4 text-blue-500" />
+                    : item.type === "payment_received"
+                    ? <Shield className="w-4 h-4 text-violet-500" />
+                    : <Bell className="w-4 h-4 text-muted-foreground" />;
+
+                  const typeLabel = item.type === "report_ready" ? "Report Ready"
+                    : item.type === "vetting_in_progress" ? "In Progress"
+                    : item.type === "payment_received" ? "Payment"
+                    : item.type.replace(/_/g, " ");
+
+                  const typeBg = item.type === "report_ready"
+                    ? "bg-emerald-50 text-emerald-700"
+                    : item.type === "vetting_in_progress"
+                    ? "bg-blue-50 text-blue-700"
+                    : item.type === "payment_received"
+                    ? "bg-violet-50 text-violet-700"
+                    : "bg-muted text-muted-foreground";
+
+                  return (
+                    <div key={item.id} className="flex items-start gap-3 px-4 py-3 hover:bg-muted/20 transition-colors">
+                      <div className="mt-0.5 shrink-0">{icon}</div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-foreground leading-snug">{item.message}</p>
+                        <div className="flex items-center gap-2 mt-1 flex-wrap">
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${typeBg}`}>
+                            {typeLabel}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground">
+                            {item.userName}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground">
+                            {formatDate(item.createdAt)}
+                          </span>
+                        </div>
+                      </div>
+                      {item.linkId && (
+                        <Link href={`/vetting-requests/${item.linkId}`}>
+                          <button className="text-xs text-primary hover:underline shrink-0 mt-0.5">
+                            View →
+                          </button>
+                        </Link>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         )}
 
         {/* Employers tab */}

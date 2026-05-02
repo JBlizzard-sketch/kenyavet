@@ -135,7 +135,9 @@ export default function Workers() {
         ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {workers.map(worker => (
-              <div key={worker.id} className="bg-card rounded-xl border border-card-border p-5 flex flex-col hover:shadow-sm transition-shadow">
+              <div key={worker.id} className={`bg-card rounded-xl border border-card-border p-5 flex flex-col hover:shadow-sm transition-shadow ${worker.id > 0 ? "cursor-pointer" : ""}`}
+                onClick={() => { if (worker.id > 0) window.location.href = `/workers/${worker.id}`; }}
+              >
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex items-center gap-3">
                     <div className="w-11 h-11 rounded-full bg-primary/10 flex items-center justify-center shrink-0 relative">

@@ -63,6 +63,13 @@ export default function VettingRequests() {
 
   const pendingPaymentCount = requests.filter(r => r.status === "pending_payment").length;
 
+  const statCards = [
+    { label: "Total", value: requests.length, color: "text-foreground" },
+    { label: "In Progress", value: requests.filter(r => r.status === "in_progress").length, color: "text-blue-600" },
+    { label: "Completed", value: requests.filter(r => r.status === "completed").length, color: "text-emerald-600" },
+    { label: "Cancelled", value: requests.filter(r => r.status === "cancelled").length, color: "text-muted-foreground" },
+  ];
+
   return (
     <AppLayout>
       <div className="p-6 max-w-5xl mx-auto">
@@ -78,6 +85,18 @@ export default function VettingRequests() {
             </Button>
           </Link>
         </div>
+
+        {/* Stat cards */}
+        {!loading && requests.length > 0 && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+            {statCards.map(card => (
+              <div key={card.label} className="bg-card rounded-xl border border-card-border p-4">
+                <div className={`text-2xl font-bold ${card.color}`}>{card.value}</div>
+                <div className="text-xs text-muted-foreground mt-0.5">{card.label}</div>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Pending payment banner */}
         {pendingPaymentCount > 0 && (

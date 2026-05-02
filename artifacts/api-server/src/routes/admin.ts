@@ -527,6 +527,28 @@ router.get("/admin/stats", requireAuth, requireRole("admin", "ops"), async (_req
   });
 });
 
+router.get("/admin/activity", requireAuth, requireRole("admin", "ops"), async (_req, res): Promise<void> => {
+  const rows = await db
+    .select({ a: activityItemsTable, u: usersTable })
+    .from(activityItemsTable)
+    .leftJoin(usersTable, eq(activityItemsTable.userId, usersTable.id))
+    .orderBy(desc(activityItemsTable.createdAt))
+    .limit(200);
+
+  res.json({
+    activity: rows.map(r => ({
+      id: r.a.id,
+      type: r.a.type,
+      message: r.a.message,
+      workerName: r.a.workerName,
+      linkId: r.a.linkId,
+      createdAt: r.a.createdAt.toISOString(),
+      userName: r.u?.name ?? "System",
+      userRole: r.u?.role ?? "system",
+    })),
+  });
+});
+
 router.get("/admin/employers", requireAuth, requireRole("admin", "ops"), async (_req, res): Promise<void> => {
   const employers = await db
     .select()

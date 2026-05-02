@@ -507,6 +507,15 @@ export default function VettingRequestDetail() {
               </Link>
             )}
 
+            {(req.status === "completed" || req.status === "cancelled") && (
+              <Link href={`/vetting-requests/new?workerName=${encodeURIComponent(req.workerName)}&workerRole=${encodeURIComponent(req.workerRole)}&workerIdNumber=${encodeURIComponent(req.workerIdNumber)}&workerPhone=${encodeURIComponent(req.workerPhone ?? "")}`}>
+                <Button className="w-full gap-2" variant="outline">
+                  <UserCheck className="w-4 h-4" />
+                  Re-submit Same Worker
+                </Button>
+              </Link>
+            )}
+
             {req.status !== "pending_payment" && (
               <Link href={`/receipt/${req.id}`}>
                 <Button className="w-full gap-2" variant="ghost">
