@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useSearch } from "wouter";
-import { Shield, CheckCircle, QrCode, Search, AlertTriangle, ExternalLink, Printer } from "lucide-react";
+import { Shield, CheckCircle, QrCode, Search, AlertTriangle, ExternalLink, Printer, Share2 } from "lucide-react";
 import { Link } from "wouter";
 import { apiFetch } from "@/lib/api";
 import { getTrustScoreBg, getTrustScoreLabel, formatDate } from "@/lib/utils";
@@ -163,12 +163,31 @@ function VerifyCard({ name, role, score, packageName, badges, flags, summary, re
             <Shield className="w-3 h-3 text-primary" />
             Verified by KenyaVet · kenyavet.co.ke
           </div>
-          <button
-            onClick={() => window.print()}
-            className="print:hidden flex items-center gap-1.5 text-xs text-gray-400 hover:text-primary transition-colors"
-          >
-            <Printer className="w-3.5 h-3.5" /> Print
-          </button>
+          <div className="print:hidden flex items-center gap-3">
+            <button
+              onClick={() => window.print()}
+              className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-primary transition-colors"
+            >
+              <Printer className="w-3.5 h-3.5" /> Print
+            </button>
+            {score >= 60 && (() => {
+              const verifyUrl = typeof window !== "undefined" ? window.location.href : "";
+              const label = score >= 80 ? "Highly Trusted" : score >= 60 ? "Trusted" : "Caution";
+              const rec = score >= 80 ? "✅ Safe to Hire" : "⚠️ Hire with Caution";
+              const text = `*KenyaVet Background Check*\n\n*${name}* — ${role}\nTrust Score: *${score}/100* (${label})\nVerdict: ${rec}\n\nVerify here: ${verifyUrl}\n\n_Verified by KenyaVet · Kenya's trusted domestic staff vetting platform_`;
+              return (
+                <a
+                  href={`https://wa.me/?text=${encodeURIComponent(text)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 text-xs font-medium transition-colors"
+                  style={{ color: "#25D366" }}
+                >
+                  <Share2 className="w-3.5 h-3.5" /> WhatsApp
+                </a>
+              );
+            })()}
+          </div>
         </div>
       </div>
     </div>

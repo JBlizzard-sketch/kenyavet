@@ -6,10 +6,11 @@ import { apiFetch } from "@/lib/api";
 import { formatDate, getTrustScoreBg, getTrustScoreLabel } from "@/lib/utils";
 import {
   ArrowLeft, Printer, Shield, CheckCircle, AlertCircle, QrCode, FileText,
-  User, Briefcase, Hash, Phone, MapPin, Share2, Copy, Check, Download,
+  User, Briefcase, Hash, Phone, MapPin, Share2, Copy, Check, Download, Award,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import QrCard from "@/components/QrCard";
+import CertificateModal from "@/components/CertificateModal";
 
 interface ScoreBreakdown {
   identity: number | null;
@@ -41,6 +42,7 @@ interface ReportFull {
   workerIdNumber: string;
   workerPhone: string | null;
   flags: string[];
+  badges: string[] | null;
   createdAt: string;
 }
 
@@ -116,6 +118,7 @@ export default function ReportDetail() {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [showQr, setShowQr] = useState(false);
+  const [showCert, setShowCert] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -275,6 +278,26 @@ export default function ReportDetail() {
               <Button variant="outline" className="gap-2 w-full" onClick={() => setShowQr(true)}>
                 <QrCode className="w-4 h-4" /> QR Certificate Card
               </Button>
+              <Button variant="outline" className="gap-2 w-full" onClick={() => setShowCert(true)}>
+                <Award className="w-4 h-4 text-emerald-600" /> Certificate of Good Standing
+              </Button>
+              {report.trustScore >= 60 && (() => {
+                const base = window.location.origin + import.meta.env.BASE_URL.replace(/\/$/, "");
+                const verifyUrl = `${base}/verify?reportId=${report.id}`;
+                const label = getTrustScoreLabel(report.trustScore);
+                const rec = report.trustScore >= 80 ? "✅ Safe to Hire" : "⚠️ Hire with Caution";
+                const text = `*KenyaVet Background Check*\n\n*${report.workerName}* — ${report.workerRole}\nTrust Score: *${report.trustScore}/100* (${label})\nVerdict: ${rec}\n\nVerify independently: ${verifyUrl}\n\n_Verified by KenyaVet · Kenya's trusted domestic staff vetting platform_`;
+                return (
+                  <a href={`https://wa.me/?text=${encodeURIComponent(text)}`} target="_blank" rel="noopener noreferrer" className="block">
+                    <Button
+                      className="gap-2 w-full text-white"
+                      style={{ backgroundColor: "#25D366", borderColor: "#25D366" }}
+                    >
+                      <Share2 className="w-4 h-4" /> Share on WhatsApp
+                    </Button>
+                  </a>
+                );
+              })()}
               {!shareUrl ? (
                 <Button variant="outline" className="gap-2 w-full" onClick={handleShare} disabled={sharing}>
                   {sharing
@@ -412,6 +435,19 @@ export default function ReportDetail() {
           packageName={report.packageName}
           generatedDate={report.createdAt}
           onClose={() => setShowQr(false)}
+        />
+      )}
+      {showCert && (
+        <CertificateModal
+          workerName={report.workerName}
+          workerRole={report.workerRole}
+          trustScore={report.trustScore}
+          badges={report.badges ?? []}
+          reportId={report.id}
+          packageName={report.packageName}
+          reportDate={report.createdAt}
+          verifyUrl={`${window.location.origin}${import.meta.env.BASE_URL.replace(/\/$/, "")}/verify?reportId=${report.id}`}
+          onClose={() => setShowCert(false)}
         />
       )}
     </AppLayout>

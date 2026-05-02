@@ -4,7 +4,7 @@ import AppLayout from "@/components/layout/AppLayout";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import { getTrustScoreBg, getTrustScoreLabel, formatDate } from "@/lib/utils";
-import { ArrowLeft, Shield, CheckCircle, QrCode, MapPin, Clock, Languages, Repeat, Star, MessageSquare, Send } from "lucide-react";
+import { ArrowLeft, Shield, CheckCircle, QrCode, MapPin, Clock, Languages, Repeat, Star, MessageSquare, Send, Share2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 
@@ -249,13 +249,36 @@ export default function WorkerProfile() {
               </div>
 
               {worker.qrCode && (
-                <div className="mt-5 pt-4 border-t border-border">
-                  <p className="text-xs text-muted-foreground mb-2">QR Code: <span className="font-mono">{worker.qrCode}</span></p>
+                <div className="mt-5 pt-4 border-t border-border space-y-2">
+                  <p className="text-xs text-muted-foreground">QR Code: <span className="font-mono">{worker.qrCode}</span></p>
                   <Link href={`/verify?qr=${worker.qrCode}`}>
                     <Button size="sm" className="w-full gap-2" variant="outline">
                       <QrCode className="w-3.5 h-3.5" /> Verify on Public Portal
                     </Button>
                   </Link>
+                  {worker.trustScore != null && worker.trustScore >= 60 && (() => {
+                    const base = window.location.origin + import.meta.env.BASE_URL.replace(/\/$/, "");
+                    const verifyUrl = `${base}/verify?qr=${worker.qrCode}`;
+                    const label = getTrustScoreLabel(worker.trustScore!);
+                    const rec = worker.trustScore! >= 80 ? "✅ Safe to Hire" : "⚠️ Hire with Caution";
+                    const text = `*KenyaVet Background Check*\n\n*${worker.name}* — ${worker.role}\nTrust Score: *${worker.trustScore}/100* (${label})\nVerdict: ${rec}\n\nVerify here: ${verifyUrl}\n\n_Verified by KenyaVet · Kenya's trusted domestic staff vetting platform_`;
+                    return (
+                      <a
+                        href={`https://wa.me/?text=${encodeURIComponent(text)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block"
+                      >
+                        <Button
+                          size="sm"
+                          className="w-full gap-2 text-white"
+                          style={{ backgroundColor: "#25D366", borderColor: "#25D366" }}
+                        >
+                          <Share2 className="w-3.5 h-3.5" /> Share on WhatsApp
+                        </Button>
+                      </a>
+                    );
+                  })()}
                 </div>
               )}
 

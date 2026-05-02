@@ -312,6 +312,13 @@ router.get("/reports/:id", requireAuth, async (req: AuthRequest, res): Promise<v
     .where(and(eq(reportsTable.id, id), eq(vettingRequestsTable.employerId, req.userId!)));
 
   if (!row) { res.status(404).json({ message: "Not found" }); return; }
+  const bd = row.r.scoreBreakdown as Record<string, number | null> | null;
+  const reportBadges: string[] = [];
+  if (row.r.identityVerified) reportBadges.push("Identity Verified");
+  if (row.r.dciCertificateStatus === "verified") reportBadges.push("DCI Cleared");
+  if (bd?.references != null && (bd.references ?? 0) >= 70) reportBadges.push("References Checked");
+  if (row.r.addressVerified) reportBadges.push("Address Verified");
+  if (row.r.socialMediaSummary) reportBadges.push("Social Media Reviewed");
   res.json({
     ...formatReport(row.r, row.vr.id),
     employerName: row.emp.name,
@@ -322,6 +329,7 @@ router.get("/reports/:id", requireAuth, async (req: AuthRequest, res): Promise<v
     referencesSummary: row.r.referencesSummary,
     scoreBreakdown: row.r.scoreBreakdown,
     flags: row.r.flags ?? [],
+    badges: reportBadges,
   });
 });
 
@@ -337,6 +345,13 @@ router.get("/reports/by-request/:requestId", requireAuth, async (req: AuthReques
     .where(and(eq(reportsTable.vettingRequestId, requestId), eq(vettingRequestsTable.employerId, req.userId!)));
 
   if (!row) { res.status(404).json({ message: "Not found" }); return; }
+  const bd2 = row.r.scoreBreakdown as Record<string, number | null> | null;
+  const reqBadges: string[] = [];
+  if (row.r.identityVerified) reqBadges.push("Identity Verified");
+  if (row.r.dciCertificateStatus === "verified") reqBadges.push("DCI Cleared");
+  if (bd2?.references != null && (bd2.references ?? 0) >= 70) reqBadges.push("References Checked");
+  if (row.r.addressVerified) reqBadges.push("Address Verified");
+  if (row.r.socialMediaSummary) reqBadges.push("Social Media Reviewed");
   res.json({
     ...formatReport(row.r, row.vr.id),
     employerName: row.emp.name,
@@ -347,6 +362,7 @@ router.get("/reports/by-request/:requestId", requireAuth, async (req: AuthReques
     referencesSummary: row.r.referencesSummary,
     scoreBreakdown: row.r.scoreBreakdown,
     flags: row.r.flags ?? [],
+    badges: reqBadges,
   });
 });
 
