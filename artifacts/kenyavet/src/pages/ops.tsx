@@ -9,6 +9,7 @@ import {
   User, MapPin, Phone, Package, Loader2, RefreshCw, Search,
   ClipboardCheck, Zap, FileText, Flag, BarChart2, TrendingUp, Target, Award,
   Paperclip, Upload, Download, File, Trash2, LayoutGrid, Play,
+  LayoutDashboard, Activity, AlertTriangle, ArrowUp, ArrowDown, Bell,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1203,6 +1204,222 @@ function OpsAnalyticsPanel({ token }: { token: string | null }) {
   );
 }
 
+interface OverviewData {
+  revenueThisMonth: number;
+  revenuePrevMonth: number;
+  activeRequests: number;
+  completedToday: number;
+  avgCompletionHours: number | null;
+  atRisk: Array<{
+    id: number;
+    workerName: string;
+    workerRole: string;
+    employerName: string;
+    employerNeighbourhood: string | null;
+    turnaroundHours: number;
+    createdAt: string;
+    updatedAt: string;
+    hoursElapsed: number;
+    hoursSinceUpdate: number;
+    isOverdue: boolean;
+    packageSlug: string;
+  }>;
+  recentActivity: Array<{
+    id: number;
+    type: string;
+    message: string;
+    workerName: string | null;
+    linkId: number | null;
+    createdAt: string;
+    userName: string;
+    userRole: string;
+  }>;
+}
+
+function activityIcon(type: string) {
+  if (type.includes("completed") || type.includes("report")) return <CheckCircle className="w-3.5 h-3.5 text-emerald-500" />;
+  if (type.includes("payment") || type.includes("paid")) return <TrendingUp className="w-3.5 h-3.5 text-violet-500" />;
+  if (type.includes("progress") || type.includes("step")) return <Zap className="w-3.5 h-3.5 text-blue-500" />;
+  if (type.includes("document") || type.includes("upload")) return <FileText className="w-3.5 h-3.5 text-amber-500" />;
+  if (type.includes("message")) return <Bell className="w-3.5 h-3.5 text-pink-500" />;
+  return <Activity className="w-3.5 h-3.5 text-muted-foreground" />;
+}
+
+function timeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+
+function OpsOverview({ token, onSelectRequest }: { token: string | null; onSelectRequest: (id: number) => void }) {
+  const [data, setData] = useState<OverviewData | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!token) return;
+    apiFetch<OverviewData>("/admin/overview", { token })
+      .then(setData)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [token]);
+
+  if (loading) {
+    return (
+      <div className="space-y-4">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {[...Array(4)].map((_, i) => <div key={i} className="h-24 bg-muted rounded-xl animate-pulse" />)}
+        </div>
+        <div className="h-48 bg-muted rounded-xl animate-pulse" />
+      </div>
+    );
+  }
+
+  if (!data) return <div className="text-sm text-muted-foreground py-8 text-center">Failed to load overview.</div>;
+
+  const revTrend = data.revenuePrevMonth > 0
+    ? Math.round(((data.revenueThisMonth - data.revenuePrevMonth) / data.revenuePrevMonth) * 100)
+    : null;
+
+  return (
+    <div className="space-y-6">
+      {/* KPI tiles */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-card border border-card-border rounded-xl p-5">
+          <div className="flex items-center justify-between mb-2">
+            <div className="w-9 h-9 rounded-lg bg-violet-50 flex items-center justify-center">
+              <TrendingUp className="w-4 h-4 text-violet-600" />
+            </div>
+            {revTrend != null && (
+              <span className={`flex items-center gap-0.5 text-xs font-semibold ${revTrend >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                {revTrend >= 0 ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />}
+                {Math.abs(revTrend)}%
+              </span>
+            )}
+          </div>
+          <p className="text-2xl font-bold text-foreground leading-none">KSh {data.revenueThisMonth.toLocaleString()}</p>
+          <p className="text-xs text-muted-foreground mt-1">Revenue this month</p>
+          {data.revenuePrevMonth > 0 && (
+            <p className="text-xs text-muted-foreground/60 mt-0.5">vs KSh {data.revenuePrevMonth.toLocaleString()} last month</p>
+          )}
+        </div>
+
+        <div className="bg-card border border-card-border rounded-xl p-5">
+          <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center mb-2">
+            <ClipboardCheck className="w-4 h-4 text-blue-600" />
+          </div>
+          <p className="text-2xl font-bold text-foreground leading-none">{data.activeRequests}</p>
+          <p className="text-xs text-muted-foreground mt-1">Active requests</p>
+          <p className="text-xs text-muted-foreground/60 mt-0.5">Currently in progress</p>
+        </div>
+
+        <div className="bg-card border border-card-border rounded-xl p-5">
+          <div className="w-9 h-9 rounded-lg bg-emerald-50 flex items-center justify-center mb-2">
+            <CheckCircle className="w-4 h-4 text-emerald-600" />
+          </div>
+          <p className="text-2xl font-bold text-foreground leading-none">{data.completedToday}</p>
+          <p className="text-xs text-muted-foreground mt-1">Completed today</p>
+          <p className="text-xs text-muted-foreground/60 mt-0.5">Reports delivered</p>
+        </div>
+
+        <div className="bg-card border border-card-border rounded-xl p-5">
+          <div className="w-9 h-9 rounded-lg bg-amber-50 flex items-center justify-center mb-2">
+            <Clock className="w-4 h-4 text-amber-600" />
+          </div>
+          <p className="text-2xl font-bold text-foreground leading-none">
+            {data.avgCompletionHours != null ? `${data.avgCompletionHours}h` : "—"}
+          </p>
+          <p className="text-xs text-muted-foreground mt-1">Avg turnaround</p>
+          <p className="text-xs text-muted-foreground/60 mt-0.5">
+            {data.avgCompletionHours != null
+              ? data.avgCompletionHours <= 24 ? "Within SLA" : data.avgCompletionHours <= 48 ? "On track" : "Needs attention"
+              : "No completions yet"}
+          </p>
+        </div>
+      </div>
+
+      <div className="grid lg:grid-cols-5 gap-4">
+        {/* At-risk requests */}
+        <div className="lg:col-span-3 bg-card border border-card-border rounded-xl p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <AlertTriangle className="w-4 h-4 text-amber-500" />
+            <h2 className="font-semibold text-foreground text-sm">SLA Risk Monitor</h2>
+            {data.atRisk.length > 0 && (
+              <span className="ml-auto bg-red-100 text-red-700 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                {data.atRisk.filter(r => r.isOverdue).length} overdue
+              </span>
+            )}
+          </div>
+
+          {data.atRisk.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-10 text-center">
+              <CheckCircle className="w-10 h-10 text-emerald-400 mb-2" />
+              <p className="text-sm font-medium text-emerald-700">All requests within SLA</p>
+              <p className="text-xs text-muted-foreground mt-0.5">No at-risk requests right now</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {data.atRisk.map(r => (
+                <div
+                  key={r.id}
+                  onClick={() => onSelectRequest(r.id)}
+                  className="flex items-center gap-3 p-3 rounded-lg border border-border hover:border-primary/30 hover:bg-accent/30 cursor-pointer transition-all"
+                >
+                  <div className={`w-1.5 self-stretch rounded-full shrink-0 ${r.isOverdue ? "bg-red-500" : "bg-amber-400"}`} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-foreground truncate">{r.workerName}</p>
+                    <p className="text-xs text-muted-foreground">{r.employerName}{r.employerNeighbourhood ? ` · ${r.employerNeighbourhood}` : ""}</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                      r.isOverdue ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"
+                    }`}>
+                      {r.isOverdue ? `Overdue ${r.hoursElapsed - r.turnaroundHours}h` : `${r.turnaroundHours - r.hoursElapsed}h left`}
+                    </span>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">Updated {timeAgo(r.updatedAt)}</p>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Live activity feed */}
+        <div className="lg:col-span-2 bg-card border border-card-border rounded-xl p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <Activity className="w-4 h-4 text-primary" />
+            <h2 className="font-semibold text-foreground text-sm">Live Activity</h2>
+          </div>
+
+          {data.recentActivity.length === 0 ? (
+            <p className="text-xs text-muted-foreground text-center py-8">No activity yet</p>
+          ) : (
+            <div className="space-y-3 overflow-y-auto max-h-80">
+              {data.recentActivity.map(item => (
+                <div key={item.id} className="flex items-start gap-2.5">
+                  <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center shrink-0 mt-0.5">
+                    {activityIcon(item.type)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-foreground leading-snug line-clamp-2">{item.message}</p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      {item.userName} · {timeAgo(item.createdAt)}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Ops() {
   const { token } = useAuth();
   const [requests, setRequests] = useState<AdminRequest[]>([]);
@@ -1210,7 +1427,7 @@ export default function Ops() {
   const [statusFilter, setStatusFilter] = useState<string>("in_progress");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<number | null>(null);
-  const [activeView, setActiveView] = useState<"queue" | "analytics" | "kanban">("queue");
+  const [activeView, setActiveView] = useState<"overview" | "queue" | "analytics" | "kanban">("overview");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1228,7 +1445,7 @@ export default function Ops() {
     }
   }, [token, statusFilter, activeView]);
 
-  useEffect(() => { if (activeView !== "analytics") load(); }, [load, activeView]);
+  useEffect(() => { if (activeView !== "analytics" && activeView !== "overview") load(); }, [load, activeView]);
 
   const startVetting = useCallback(async (id: number) => {
     try {
@@ -1275,6 +1492,16 @@ export default function Ops() {
             {/* View toggle */}
             <div className="flex items-center bg-muted rounded-lg p-1 gap-0.5">
               <button
+                onClick={() => setActiveView("overview")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                  activeView === "overview"
+                    ? "bg-white text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <LayoutDashboard className="w-3.5 h-3.5" /> Overview
+              </button>
+              <button
                 onClick={() => setActiveView("queue")}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
                   activeView === "queue"
@@ -1314,7 +1541,9 @@ export default function Ops() {
           </div>
         </div>
 
-        {activeView === "analytics" ? (
+        {activeView === "overview" ? (
+          <OpsOverview token={token} onSelectRequest={setSelected} />
+        ) : activeView === "analytics" ? (
           <OpsAnalyticsPanel token={token} />
         ) : activeView === "kanban" ? (
           loading ? (

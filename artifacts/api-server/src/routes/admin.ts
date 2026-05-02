@@ -788,4 +788,91 @@ router.patch("/admin/users/:id/role", requireAuth, requireRole("admin"), async (
   res.json({ success: true, user: { id: user.id, name: user.name, role: user.role } });
 });
 
+router.get("/admin/overview", requireAuth, requireRole("admin", "ops"), async (_req: AuthRequest, res): Promise<void> => {
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const startOfPrevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const endOfPrevMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  const [allReqs, activityRows] = await Promise.all([
+    db.select({ vr: vettingRequestsTable, pkg: vettingPackagesTable, emp: usersTable })
+      .from(vettingRequestsTable)
+      .leftJoin(vettingPackagesTable, eq(vettingRequestsTable.packageId, vettingPackagesTable.id))
+      .leftJoin(usersTable, eq(vettingRequestsTable.employerId, usersTable.id)),
+    db.select({ a: activityItemsTable, u: usersTable })
+      .from(activityItemsTable)
+      .leftJoin(usersTable, eq(activityItemsTable.userId, usersTable.id))
+      .orderBy(desc(activityItemsTable.createdAt))
+      .limit(20),
+  ]);
+
+  const paidStatuses = ["in_progress", "completed"];
+
+  const revenueThisMonth = allReqs
+    .filter(r => paidStatuses.includes(r.vr.status) && new Date(r.vr.createdAt) >= startOfMonth)
+    .reduce((s, r) => s + (r.pkg?.priceKsh ?? 0), 0);
+
+  const revenuePrevMonth = allReqs
+    .filter(r => paidStatuses.includes(r.vr.status) && new Date(r.vr.createdAt) >= startOfPrevMonth && new Date(r.vr.createdAt) <= endOfPrevMonth)
+    .reduce((s, r) => s + (r.pkg?.priceKsh ?? 0), 0);
+
+  const activeRequests = allReqs.filter(r => r.vr.status === "in_progress").length;
+
+  const completedToday = allReqs.filter(r =>
+    r.vr.status === "completed" && r.vr.completedAt && new Date(r.vr.completedAt) >= startOfToday
+  ).length;
+
+  const completedWithTimes = allReqs.filter(r => r.vr.status === "completed" && r.vr.completedAt);
+  const avgCompletionHours = completedWithTimes.length > 0
+    ? Math.round(completedWithTimes.reduce((s, r) =>
+        s + (new Date(r.vr.completedAt!).getTime() - new Date(r.vr.createdAt).getTime()), 0
+      ) / completedWithTimes.length / (60 * 60 * 1000))
+    : null;
+
+  const inProgress = allReqs.filter(r => r.vr.status === "in_progress");
+  const atRisk = inProgress
+    .map(r => {
+      const turnaroundHours = r.pkg?.turnaroundHours ?? 48;
+      const hoursElapsed = (now.getTime() - new Date(r.vr.createdAt).getTime()) / (60 * 60 * 1000);
+      const hoursSinceUpdate = (now.getTime() - new Date(r.vr.updatedAt).getTime()) / (60 * 60 * 1000);
+      return {
+        id: r.vr.id,
+        workerName: r.vr.workerName,
+        workerRole: r.vr.workerRole,
+        employerName: r.emp?.name ?? "",
+        employerNeighbourhood: r.emp?.neighbourhood ?? null,
+        turnaroundHours,
+        createdAt: r.vr.createdAt.toISOString(),
+        updatedAt: r.vr.updatedAt.toISOString(),
+        hoursElapsed: Math.round(hoursElapsed),
+        hoursSinceUpdate: Math.round(hoursSinceUpdate),
+        isOverdue: hoursElapsed > turnaroundHours,
+        packageSlug: r.pkg?.slug ?? "",
+      };
+    })
+    .filter(r => r.hoursElapsed > r.turnaroundHours * 0.5 || r.hoursSinceUpdate > 12)
+    .sort((a, b) => b.hoursElapsed - a.hoursElapsed)
+    .slice(0, 10);
+
+  res.json({
+    revenueThisMonth,
+    revenuePrevMonth,
+    activeRequests,
+    completedToday,
+    avgCompletionHours,
+    atRisk,
+    recentActivity: activityRows.map(r => ({
+      id: r.a.id,
+      type: r.a.type,
+      message: r.a.message,
+      workerName: r.a.workerName,
+      linkId: r.a.linkId,
+      createdAt: r.a.createdAt.toISOString(),
+      userName: r.u?.name ?? "System",
+      userRole: r.u?.role ?? "system",
+    })),
+  });
+});
+
 export default router;
