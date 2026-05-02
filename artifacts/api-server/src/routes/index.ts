@@ -12,6 +12,7 @@ import adminRouter from "./admin";
 import paymentsRouter from "./payments";
 import landingRouter from "./landing";
 import searchRouter from "./search";
+import analyticsRouter from "./analytics";
 
 const router: IRouter = Router();
 
@@ -28,5 +29,6 @@ router.use(adminRouter);
 router.use(paymentsRouter);
 router.use(landingRouter);
 router.use(searchRouter);
+router.use(analyticsRouter);
 
 export default router;

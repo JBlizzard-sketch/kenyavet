@@ -81,12 +81,42 @@ router.post("/staff/from-request/:requestId", requireAuth, async (req: AuthReque
   res.status(201).json(formatStaff(record));
 });
 
+// GET /staff/renewals — must be BEFORE /staff/:id
+router.get("/staff/renewals", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  const records = await db.select().from(staffRecordsTable)
+    .where(and(eq(staffRecordsTable.employerId, req.userId!), eq(staffRecordsTable.active, true)));
+
+  const now = Date.now();
+  const SOON_MS = 60 * 24 * 60 * 60 * 1000; // 60 days
+
+  const enriched = records
+    .filter(r => r.renewalDueAt != null)
+    .map(r => {
+      const dueTs = r.renewalDueAt!.getTime();
+      const daysUntil = Math.ceil((dueTs - now) / 86400000);
+      const urgency: "overdue" | "due_soon" | "ok" =
+        dueTs < now ? "overdue" : dueTs < now + SOON_MS ? "due_soon" : "ok";
+      return {
+        ...formatStaff(r),
+        daysUntil,
+        urgency,
+      };
+    })
+    .sort((a, b) => {
+      const order = { overdue: 0, due_soon: 1, ok: 2 };
+      if (order[a.urgency] !== order[b.urgency]) return order[a.urgency] - order[b.urgency];
+      return a.daysUntil - b.daysUntil;
+    });
+
+  res.json({ renewals: enriched });
+});
+
 router.patch("/staff/:id", requireAuth, async (req: AuthRequest, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ message: "Invalid ID" }); return; }
 
   const update: Record<string, unknown> = {};
-  const { workerName, name, role, phone, notes, status, active } = req.body;
+  const { workerName, name, role, phone, notes, status, active, renewalDueAt } = req.body;
   if (workerName != null) update.name = workerName;
   if (name != null) update.name = name;
   if (role != null) update.role = role;
@@ -94,6 +124,7 @@ router.patch("/staff/:id", requireAuth, async (req: AuthRequest, res): Promise<v
   if (notes != null) update.notes = notes;
   if (status != null) update.active = status === "active";
   if (active != null) update.active = active;
+  if (renewalDueAt !== undefined) update.renewalDueAt = renewalDueAt ? new Date(renewalDueAt) : null;
 
   const [record] = await db.update(staffRecordsTable)
     .set(update)

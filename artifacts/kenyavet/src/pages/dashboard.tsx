@@ -6,7 +6,7 @@ import { apiFetch } from "@/lib/api";
 import { formatDate, formatKsh, getStatusColor, getStatusLabel, getTrustScoreBg } from "@/lib/utils";
 import {
   ClipboardList, Users, CheckCircle, TrendingUp, Plus, ArrowRight,
-  CreditCard, FileText, Shield, Bell, Zap, BarChart2, X,
+  CreditCard, FileText, Shield, Bell, Zap, BarChart2, X, CalendarClock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -50,6 +50,15 @@ interface OnboardingStep {
   sublabel: string;
   done: boolean;
   href: string;
+}
+
+interface StaffRenewal {
+  id: number;
+  workerName: string;
+  role: string;
+  renewalDueAt: string | null;
+  daysUntil: number;
+  urgency: "overdue" | "due_soon" | "ok";
 }
 
 function activityIcon(type: string) {
@@ -102,11 +111,12 @@ export default function Dashboard() {
   const [onboardingDismissed, setOnboardingDismissed] = useState(() =>
     localStorage.getItem("kv_onboarding_dismissed") === "1"
   );
+  const [renewals, setRenewals] = useState<StaffRenewal[]>([]);
 
   useEffect(() => {
     async function load() {
       try {
-        const [statsData, recentData, activityData, weekData, onboardingData] = await Promise.all([
+        const [statsData, recentData, activityData, weekData, onboardingData, renewalsData] = await Promise.all([
           apiFetch<DashboardStats>("/dashboard/stats", { token }),
           apiFetch<RecentRequest[]>("/dashboard/recent-requests", { token }),
           apiFetch<ActivityItem[]>("/dashboard/activity", { token }),
@@ -114,12 +124,16 @@ export default function Dashboard() {
           user?.role === "employer"
             ? apiFetch<{ steps: OnboardingStep[]; allDone: boolean }>("/dashboard/onboarding", { token })
             : Promise.resolve(null),
+          user?.role === "employer"
+            ? apiFetch<{ renewals: StaffRenewal[] }>("/staff/renewals", { token })
+            : Promise.resolve(null),
         ]);
         setStats(statsData);
         setRecent(recentData);
         setActivity(activityData);
         setWeekDays(weekData.days);
         if (onboardingData) setOnboarding(onboardingData);
+        if (renewalsData) setRenewals(renewalsData.renewals.filter(r => r.urgency !== "ok").slice(0, 5));
       } catch {
       } finally {
         setLoading(false);
@@ -356,6 +370,78 @@ export default function Dashboard() {
                 })()}
               </div>
             )}
+          </div>
+        )}
+
+        {/* Re-vetting scheduler widget — employer only, only when there are overdue/due-soon */}
+        {renewals.length > 0 && (
+          <div className={`rounded-xl border p-5 mb-6 ${
+            renewals.some(r => r.urgency === "overdue")
+              ? "bg-red-50 border-red-200 dark:bg-red-950/20 dark:border-red-900/50"
+              : "bg-amber-50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-900/50"
+          }`}>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className={`font-semibold flex items-center gap-2 text-sm ${
+                renewals.some(r => r.urgency === "overdue") ? "text-red-800 dark:text-red-300" : "text-amber-800 dark:text-amber-300"
+              }`}>
+                <CalendarClock className="w-4 h-4" />
+                {renewals.some(r => r.urgency === "overdue") ? "Re-vetting Overdue" : "Re-vetting Due Soon"}
+                <span className={`text-xs font-normal px-1.5 py-0.5 rounded-full ${
+                  renewals.some(r => r.urgency === "overdue") ? "bg-red-200 text-red-800 dark:bg-red-900/50 dark:text-red-300" : "bg-amber-200 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300"
+                }`}>{renewals.length}</span>
+              </h2>
+              <Link href="/staff" className={`text-xs hover:underline flex items-center gap-1 ${
+                renewals.some(r => r.urgency === "overdue") ? "text-red-700 dark:text-red-400" : "text-amber-700 dark:text-amber-400"
+              }`}>
+                Manage staff <ArrowRight className="w-3 h-3" />
+              </Link>
+            </div>
+            <div className="space-y-2">
+              {renewals.map(r => (
+                <Link key={r.id} href={`/staff/${r.id}`}>
+                  <div className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer hover:shadow-sm transition-shadow ${
+                    r.urgency === "overdue"
+                      ? "bg-red-100/60 border-red-200 dark:bg-red-900/20 dark:border-red-800/50"
+                      : "bg-amber-100/60 border-amber-200 dark:bg-amber-900/20 dark:border-amber-800/50"
+                  }`}>
+                    <div className="flex items-center gap-3">
+                      <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white ${
+                        r.urgency === "overdue" ? "bg-red-500" : "bg-amber-500"
+                      }`}>
+                        {r.workerName.charAt(0)}
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-foreground">{r.workerName}</p>
+                        <p className="text-xs text-muted-foreground">{r.role}</p>
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className={`text-xs font-semibold ${r.urgency === "overdue" ? "text-red-700 dark:text-red-400" : "text-amber-700 dark:text-amber-400"}`}>
+                        {r.urgency === "overdue"
+                          ? `${Math.abs(r.daysUntil)}d overdue`
+                          : `${r.daysUntil}d left`}
+                      </p>
+                      {r.renewalDueAt && (
+                        <p className="text-xs text-muted-foreground">
+                          {new Date(r.renewalDueAt).toLocaleDateString("en-KE", { day: "numeric", month: "short" })}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+            <div className="mt-3">
+              <Link href="/vetting-requests/new">
+                <Button size="sm" variant="outline" className={`w-full gap-2 text-xs ${
+                  renewals.some(r => r.urgency === "overdue")
+                    ? "border-red-300 text-red-700 hover:bg-red-100 dark:border-red-700 dark:text-red-300"
+                    : "border-amber-300 text-amber-700 hover:bg-amber-100 dark:border-amber-700 dark:text-amber-300"
+                }`}>
+                  <Shield className="w-3.5 h-3.5" /> Submit Re-vetting Request
+                </Button>
+              </Link>
+            </div>
           </div>
         )}
 

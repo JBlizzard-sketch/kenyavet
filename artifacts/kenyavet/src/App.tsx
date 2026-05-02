@@ -28,6 +28,7 @@ import ForgotPassword from "@/pages/forgot-password";
 import ResetPassword from "@/pages/reset-password";
 import WorkerPublic from "@/pages/worker-public";
 import ReportPublic from "@/pages/report-public";
+import Analytics from "@/pages/analytics";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient({
@@ -99,6 +100,9 @@ function Router() {
       </Route>
       <Route path="/billing">
         {() => <PrivateRoute component={Billing} />}
+      </Route>
+      <Route path="/analytics">
+        {() => <PrivateRoute component={Analytics} />}
       </Route>
 
       <Route component={NotFound} />

@@ -7,7 +7,7 @@ import { toast } from "@/hooks/use-toast";
 import { formatDate, getTrustScoreBg } from "@/lib/utils";
 import {
   ArrowLeft, UserCog, Phone, CalendarClock, Shield, FileText,
-  CheckCircle, Clock, AlertTriangle,
+  CheckCircle, Clock, AlertTriangle, Edit2, Save, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -32,6 +32,10 @@ export default function StaffDetail() {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [toggling, setToggling] = useState(false);
+
+  const [editingRenewal, setEditingRenewal] = useState(false);
+  const [renewalInput, setRenewalInput] = useState("");
+  const [renewalSaving, setRenewalSaving] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -205,6 +209,72 @@ export default function StaffDetail() {
                       : "Re-vetting schedule not set"}
                   </p>
                 </div>
+
+                {/* Renewal date editor */}
+                <div className="pt-3 border-t border-border/40">
+                  {editingRenewal ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="date"
+                        value={renewalInput}
+                        onChange={e => setRenewalInput(e.target.value)}
+                        className="flex-1 text-sm bg-background border border-border rounded-lg px-3 py-1.5 text-foreground outline-none focus:ring-2 focus:ring-ring"
+                        min={new Date().toISOString().slice(0, 10)}
+                      />
+                      <Button
+                        size="sm"
+                        disabled={renewalSaving || !renewalInput}
+                        onClick={async () => {
+                          setRenewalSaving(true);
+                          try {
+                            const updated = await apiFetch<StaffMember>(`/staff/${member.id}`, {
+                              method: "PATCH", token,
+                              body: { renewalDueAt: renewalInput },
+                            });
+                            setMember(updated);
+                            setEditingRenewal(false);
+                            toast({ title: "Renewal date updated" });
+                          } catch {
+                            toast({ title: "Failed to update renewal date", variant: "destructive" });
+                          } finally {
+                            setRenewalSaving(false);
+                          }
+                        }}
+                        className="gap-1.5 shrink-0"
+                      >
+                        <Save className="w-3.5 h-3.5" />
+                        {renewalSaving ? "Saving…" : "Save"}
+                      </Button>
+                      <button
+                        onClick={() => setEditingRenewal(false)}
+                        className="p-1.5 rounded-md hover:bg-muted text-muted-foreground"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        setRenewalInput(member.renewalDueAt ? member.renewalDueAt.slice(0, 10) : "");
+                        setEditingRenewal(true);
+                      }}
+                      className="flex items-center gap-1.5 text-xs text-primary hover:underline"
+                    >
+                      <Edit2 className="w-3 h-3" />
+                      {member.renewalDueAt ? "Edit renewal date" : "Set renewal date"}
+                    </button>
+                  )}
+                </div>
+
+                {(renewalOverdue || renewalSoon) && (
+                  <div className="pt-2">
+                    <Link href={`/vetting-requests/new?workerName=${encodeURIComponent(member.workerName)}&workerRole=${encodeURIComponent(member.role)}`}>
+                      <Button size="sm" className="w-full gap-2">
+                        <Shield className="w-3.5 h-3.5" /> Schedule Re-vetting Now
+                      </Button>
+                    </Link>
+                  </div>
+                )}
               </div>
             </div>
 

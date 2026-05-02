@@ -8,7 +8,7 @@ import {
   LayoutDashboard, ClipboardList, Users, FileText,
   UserCog, Settings, LogOut, Menu, X, Shield,
   ChevronRight, Bell, CheckCircle, TrendingUp, CreditCard, AlertCircle,
-  ClipboardCheck, User, Search, Loader2, Sun, Moon,
+  ClipboardCheck, User, Search, Loader2, Sun, Moon, BarChart2,
 } from "lucide-react";
 
 interface NavItem {
@@ -41,6 +41,7 @@ const navItems: NavItem[] = [
   { label: "My Staff", href: "/staff", icon: UserCog },
   { label: "Workers", href: "/workers", icon: Users },
   { label: "Reports", href: "/reports", icon: FileText },
+  { label: "Analytics", href: "/analytics", icon: BarChart2 },
   { label: "Billing", href: "/billing", icon: CreditCard, roles: ["employer"] },
   { label: "Ops Workflow", href: "/ops", icon: ClipboardCheck, roles: ["admin", "ops"] },
   { label: "Admin", href: "/admin", icon: Settings, roles: ["admin", "ops"] },

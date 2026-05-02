@@ -6,7 +6,7 @@ import { apiFetch } from "@/lib/api";
 import { formatDate, getTrustScoreBg, getTrustScoreLabel } from "@/lib/utils";
 import {
   ArrowLeft, Printer, Shield, CheckCircle, AlertCircle, QrCode, FileText,
-  User, Briefcase, Hash, Phone, MapPin, Share2, Copy, Check,
+  User, Briefcase, Hash, Phone, MapPin, Share2, Copy, Check, Download,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import QrCard from "@/components/QrCard";
@@ -246,6 +246,29 @@ export default function ReportDetail() {
 
             {/* Actions */}
             <div className="no-print flex flex-col gap-2">
+              <Button
+                variant="default"
+                className="gap-2 w-full"
+                onClick={async () => {
+                  const { API_BASE } = await import("@/lib/api");
+                  const storedToken = localStorage.getItem("kenyavet_token");
+                  const a = document.createElement("a");
+                  a.href = `${API_BASE}/reports/${report.id}/pdf`;
+                  // Fetch with auth and force download
+                  const resp = await fetch(a.href, { headers: { Authorization: `Bearer ${storedToken}` } });
+                  if (!resp.ok) return;
+                  const blob = await resp.blob();
+                  const url = URL.createObjectURL(blob);
+                  a.href = url;
+                  a.download = `KenyaVet_Report_${report.workerName.replace(/\s+/g, "_")}_${report.id}.pdf`;
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                  URL.revokeObjectURL(url);
+                }}
+              >
+                <Download className="w-4 h-4" /> Download PDF Report
+              </Button>
               <Button variant="outline" className="gap-2 w-full" onClick={() => window.print()}>
                 <Printer className="w-4 h-4" /> Print / Save PDF
               </Button>
