@@ -7,3 +7,4 @@ export * from "./workers";
 export * from "./reports";
 export * from "./staff_records";
 export * from "./activity_items";
+export * from "./worker_reviews";

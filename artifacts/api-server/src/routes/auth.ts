@@ -168,4 +168,35 @@ router.patch("/auth/me/update", requireAuth, async (req: AuthRequest, res): Prom
   res.json(formatUser(user));
 });
 
+router.get("/auth/me/notifications", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  const [user] = await db.select({ notificationPrefs: usersTable.notificationPrefs })
+    .from(usersTable)
+    .where(eq(usersTable.id, req.userId!));
+  if (!user) { res.status(404).json({ error: "User not found" }); return; }
+  res.json({
+    prefs: user.notificationPrefs ?? {
+      report_ready: true,
+      payment_confirmed: true,
+      re_vetting_due: true,
+      weekly_digest: false,
+    },
+  });
+});
+
+router.patch("/auth/me/notifications", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  const allowed = ["report_ready", "payment_confirmed", "re_vetting_due", "weekly_digest"];
+  const [current] = await db.select({ notificationPrefs: usersTable.notificationPrefs })
+    .from(usersTable).where(eq(usersTable.id, req.userId!));
+  if (!current) { res.status(404).json({ error: "User not found" }); return; }
+
+  const base = current.notificationPrefs ?? { report_ready: true, payment_confirmed: true, re_vetting_due: true, weekly_digest: false };
+  const merged: Record<string, boolean> = { ...base as Record<string, boolean> };
+  for (const key of allowed) {
+    if (typeof req.body[key] === "boolean") merged[key] = req.body[key];
+  }
+
+  await db.update(usersTable).set({ notificationPrefs: merged as typeof base }).where(eq(usersTable.id, req.userId!));
+  res.json({ prefs: merged });
+});
+
 export default router;

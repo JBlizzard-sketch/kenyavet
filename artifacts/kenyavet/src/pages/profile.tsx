@@ -1,15 +1,29 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import AppLayout from "@/components/layout/AppLayout";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import { toast } from "@/hooks/use-toast";
-import { User, Phone, MapPin, Mail, Shield, Save, CheckCircle, Lock, Eye, EyeOff } from "lucide-react";
+import { User, Phone, MapPin, Mail, Shield, Save, CheckCircle, Lock, Eye, EyeOff, Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const neighbourhoods = ["Karen", "Runda", "Muthaiga", "Kitisuru", "Gigiri", "Lavington", "Westlands", "Kilimani", "Other"];
+
+interface NotifPrefs {
+  report_ready: boolean;
+  payment_confirmed: boolean;
+  re_vetting_due: boolean;
+  weekly_digest: boolean;
+}
+
+const NOTIF_LABELS: { key: keyof NotifPrefs; label: string; desc: string }[] = [
+  { key: "report_ready", label: "Report ready", desc: "When your vetting report is published" },
+  { key: "payment_confirmed", label: "Payment confirmed", desc: "M-Pesa payment receipt confirmation" },
+  { key: "re_vetting_due", label: "Re-vetting reminders", desc: "When a staff member is due for renewal" },
+  { key: "weekly_digest", label: "Weekly digest", desc: "Summary of activity every Monday" },
+];
 
 export default function Profile() {
   const { user, token, login } = useAuth();
@@ -21,6 +35,38 @@ export default function Profile() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
+
+  const [notifPrefs, setNotifPrefs] = useState<NotifPrefs>({
+    report_ready: true, payment_confirmed: true, re_vetting_due: true, weekly_digest: false,
+  });
+  const [notifSaving, setNotifSaving] = useState(false);
+
+  useEffect(() => {
+    if (!token) return;
+    apiFetch<{ prefs: NotifPrefs }>("/auth/me/notifications", { token })
+      .then(data => setNotifPrefs(data.prefs))
+      .catch(() => {});
+  }, [token]);
+
+  async function handleNotifToggle(key: keyof NotifPrefs) {
+    const updated = { ...notifPrefs, [key]: !notifPrefs[key] };
+    setNotifPrefs(updated);
+    setNotifSaving(true);
+    try {
+      const result = await apiFetch<{ prefs: NotifPrefs }>("/auth/me/notifications", {
+        method: "PATCH",
+        token,
+        body: { [key]: !notifPrefs[key] },
+      });
+      setNotifPrefs(result.prefs);
+      toast({ title: "Preferences saved" });
+    } catch {
+      setNotifPrefs(notifPrefs);
+      toast({ title: "Failed to save preferences", variant: "destructive" });
+    } finally {
+      setNotifSaving(false);
+    }
+  }
 
   const [pwForm, setPwForm] = useState({ currentPassword: "", newPassword: "", confirmPassword: "" });
   const [pwSaving, setPwSaving] = useState(false);
@@ -294,6 +340,43 @@ export default function Profile() {
               </Button>
             </div>
           </form>
+        </div>
+
+        {/* Notification preferences */}
+        <div className="bg-card rounded-xl border border-card-border p-6">
+          <h2 className="font-semibold text-foreground mb-1 flex items-center gap-2">
+            <Bell className="w-4 h-4 text-muted-foreground" /> Email Notifications
+          </h2>
+          <p className="text-xs text-muted-foreground mb-5">Choose which emails you receive from KenyaVet</p>
+          <div className="space-y-1">
+            {NOTIF_LABELS.map(({ key, label, desc }) => (
+              <div key={key} className="flex items-center justify-between py-3 border-b border-border last:border-0">
+                <div>
+                  <p className="text-sm font-medium text-foreground">{label}</p>
+                  <p className="text-xs text-muted-foreground">{desc}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleNotifToggle(key)}
+                  disabled={notifSaving}
+                  className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${
+                    notifPrefs[key] ? "bg-primary" : "bg-muted"
+                  } disabled:opacity-50`}
+                  role="switch"
+                  aria-checked={notifPrefs[key]}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                      notifPrefs[key] ? "translate-x-4" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground mt-4">
+            Note: Transactional emails (payment receipts, report delivery) are always sent regardless of these settings.
+          </p>
         </div>
       </div>
     </AppLayout>

@@ -1,11 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useParams, Link } from "wouter";
 import AppLayout from "@/components/layout/AppLayout";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import { getTrustScoreBg, getTrustScoreLabel, formatDate } from "@/lib/utils";
-import { ArrowLeft, Shield, CheckCircle, QrCode, MapPin, Clock, Languages, Repeat } from "lucide-react";
+import { ArrowLeft, Shield, CheckCircle, QrCode, MapPin, Clock, Languages, Repeat, Star, MessageSquare, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { toast } from "@/hooks/use-toast";
 
 interface WorkerDetail {
   id: number;
@@ -21,6 +22,17 @@ interface WorkerDetail {
   vetCount: number;
   verifiedAt: string | null;
   createdAt: string;
+  avgRating: number | null;
+  reviewCount: number;
+}
+
+interface Review {
+  id: number;
+  rating: number;
+  review: string | null;
+  createdAt: string;
+  employerName: string;
+  employerNeighbourhood: string | null;
 }
 
 function TrustRing({ score }: { score: number }) {
@@ -28,18 +40,13 @@ function TrustRing({ score }: { score: number }) {
   const circumference = 2 * Math.PI * radius;
   const filled = (score / 100) * circumference;
   const color = score >= 80 ? "#10b981" : score >= 60 ? "#f59e0b" : "#ef4444";
-
   return (
     <div className="relative w-36 h-36 mx-auto">
       <svg viewBox="0 0 120 120" className="w-full h-full -rotate-90">
         <circle cx="60" cy="60" r={radius} fill="none" stroke="#e5e7eb" strokeWidth="10" />
-        <circle
-          cx="60" cy="60" r={radius}
-          fill="none" stroke={color} strokeWidth="10"
-          strokeDasharray={`${filled} ${circumference}`}
-          strokeLinecap="round"
-          className="transition-all duration-700"
-        />
+        <circle cx="60" cy="60" r={radius} fill="none" stroke={color} strokeWidth="10"
+          strokeDasharray={`${filled} ${circumference}`} strokeLinecap="round"
+          className="transition-all duration-700" />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <span className="text-3xl font-bold text-foreground">{score}</span>
@@ -59,12 +66,49 @@ const BADGE_ICONS: Record<string, string> = {
   "Highly Rated": "⭐",
 };
 
+function StarRow({ value, onChange, size = "md" }: { value: number; onChange?: (v: number) => void; size?: "sm" | "md" }) {
+  const [hovered, setHovered] = useState(0);
+  const dim = size === "sm" ? "w-3.5 h-3.5" : "w-5 h-5";
+  return (
+    <div className="flex items-center gap-0.5">
+      {[1, 2, 3, 4, 5].map(n => (
+        <button
+          key={n}
+          type="button"
+          onClick={() => onChange?.(n)}
+          onMouseEnter={() => onChange && setHovered(n)}
+          onMouseLeave={() => onChange && setHovered(0)}
+          className={onChange ? "cursor-pointer" : "cursor-default"}
+          disabled={!onChange}
+        >
+          <Star
+            className={`${dim} transition-colors ${
+              n <= (hovered || value)
+                ? "fill-amber-400 text-amber-400"
+                : "fill-muted text-muted-foreground/30"
+            }`}
+          />
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function WorkerProfile() {
   const { id } = useParams<{ id: string }>();
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [worker, setWorker] = useState<WorkerDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [reviewsLoading, setReviewsLoading] = useState(false);
+
+  const [rating, setRating] = useState(0);
+  const [reviewText, setReviewText] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [myReview, setMyReview] = useState<Review | null>(null);
+  const [showForm, setShowForm] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -73,6 +117,49 @@ export default function WorkerProfile() {
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false));
   }, [id, token]);
+
+  const loadReviews = useCallback(() => {
+    if (!id) return;
+    setReviewsLoading(true);
+    apiFetch<{ reviews: Review[]; avgRating: number | null; totalReviews: number }>(`/workers/${id}/reviews`, { token })
+      .then(data => {
+        setReviews(data.reviews);
+        const mine = data.reviews.find(r => r.employerName === user?.name);
+        if (mine) {
+          setMyReview(mine);
+          setRating(mine.rating);
+          setReviewText(mine.review ?? "");
+        }
+      })
+      .catch(() => {})
+      .finally(() => setReviewsLoading(false));
+  }, [id, token, user?.name]);
+
+  useEffect(() => { loadReviews(); }, [loadReviews]);
+
+  async function handleSubmitReview(e: React.FormEvent) {
+    e.preventDefault();
+    if (rating === 0) { toast({ title: "Please select a rating", variant: "destructive" }); return; }
+    setSubmitting(true);
+    try {
+      await apiFetch(`/workers/${id}/review`, {
+        method: "POST",
+        token,
+        body: { rating, review: reviewText.trim() || null },
+      });
+      toast({ title: myReview ? "Review updated" : "Review submitted", description: "Thank you for your feedback." });
+      setShowForm(false);
+      loadReviews();
+      if (id) {
+        const updated = await apiFetch<WorkerDetail>(`/workers/${id}`, { token });
+        setWorker(updated);
+      }
+    } catch {
+      toast({ title: "Failed to submit review", variant: "destructive" });
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   if (loading) return <AppLayout><div className="p-6 text-muted-foreground text-sm">Loading…</div></AppLayout>;
   if (notFound || !worker) return (
@@ -114,6 +201,13 @@ export default function WorkerProfile() {
               </div>
               <h1 className="text-xl font-serif font-bold text-foreground">{worker.name}</h1>
               <p className="text-sm text-muted-foreground mt-0.5">{worker.role}</p>
+
+              {worker.avgRating != null && (
+                <div className="mt-2 flex items-center justify-center gap-2">
+                  <StarRow value={Math.round(worker.avgRating)} size="sm" />
+                  <span className="text-xs text-muted-foreground">{worker.avgRating} ({worker.reviewCount})</span>
+                </div>
+              )}
 
               {worker.trustScore != null && (
                 <div className="mt-6">
@@ -185,11 +279,11 @@ export default function WorkerProfile() {
                 </h2>
                 <div className="grid sm:grid-cols-2 gap-3">
                   {worker.badges.map(badge => (
-                    <div key={badge} className="flex items-center gap-3 p-3 rounded-lg bg-emerald-50 border border-emerald-100">
+                    <div key={badge} className="flex items-center gap-3 p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-900/50">
                       <span className="text-xl">{BADGE_ICONS[badge] ?? "✓"}</span>
                       <div>
-                        <p className="text-sm font-medium text-emerald-800">{badge}</p>
-                        <p className="text-xs text-emerald-600">Verified by KenyaVet</p>
+                        <p className="text-sm font-medium text-emerald-800 dark:text-emerald-300">{badge}</p>
+                        <p className="text-xs text-emerald-600 dark:text-emerald-500">Verified by KenyaVet</p>
                       </div>
                     </div>
                   ))}
@@ -230,7 +324,7 @@ export default function WorkerProfile() {
               </div>
             </div>
 
-            {/* Trust score breakdown display (visual only) */}
+            {/* Trust score breakdown */}
             {worker.trustScore != null && (
               <div className="bg-card rounded-xl border border-card-border p-5">
                 <h2 className="font-semibold text-foreground mb-4">Trust Score Breakdown</h2>
@@ -268,6 +362,105 @@ export default function WorkerProfile() {
                 </p>
               </div>
             )}
+
+            {/* Reviews section */}
+            <div className="bg-card rounded-xl border border-card-border p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="font-semibold text-foreground flex items-center gap-2">
+                  <MessageSquare className="w-4 h-4 text-primary" />
+                  Employer Reviews
+                  {reviews.length > 0 && (
+                    <span className="text-xs font-normal text-muted-foreground ml-1">({reviews.length})</span>
+                  )}
+                </h2>
+                {user?.role === "employer" && !showForm && (
+                  <button
+                    onClick={() => setShowForm(true)}
+                    className="text-xs text-primary hover:underline"
+                  >
+                    {myReview ? "Edit my review" : "Leave a review"}
+                  </button>
+                )}
+              </div>
+
+              {/* Rating summary */}
+              {worker.avgRating != null && reviews.length > 0 && (
+                <div className="flex items-center gap-4 mb-4 p-3 bg-muted/40 rounded-lg">
+                  <div className="text-center">
+                    <div className="text-3xl font-bold text-foreground">{worker.avgRating}</div>
+                    <div className="text-xs text-muted-foreground">out of 5</div>
+                  </div>
+                  <div>
+                    <StarRow value={Math.round(worker.avgRating)} />
+                    <p className="text-xs text-muted-foreground mt-1">{reviews.length} review{reviews.length !== 1 ? "s" : ""}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Leave review form */}
+              {showForm && (
+                <form onSubmit={handleSubmitReview} className="mb-5 p-4 bg-muted/30 rounded-lg border border-border space-y-3">
+                  <p className="text-sm font-medium text-foreground">{myReview ? "Edit your review" : "Rate this worker"}</p>
+                  <div>
+                    <StarRow value={rating} onChange={setRating} />
+                    {rating > 0 && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {["", "Poor", "Fair", "Good", "Very Good", "Excellent"][rating]}
+                      </p>
+                    )}
+                  </div>
+                  <textarea
+                    value={reviewText}
+                    onChange={e => setReviewText(e.target.value)}
+                    placeholder="Share your experience with this worker (optional)…"
+                    rows={3}
+                    className="w-full text-sm bg-background border border-border rounded-lg px-3 py-2 text-foreground placeholder:text-muted-foreground resize-none outline-none focus:ring-2 focus:ring-ring"
+                  />
+                  <div className="flex items-center gap-2">
+                    <Button type="submit" size="sm" disabled={submitting || rating === 0} className="gap-1.5">
+                      <Send className="w-3.5 h-3.5" />
+                      {submitting ? "Submitting…" : myReview ? "Update Review" : "Submit Review"}
+                    </Button>
+                    <Button type="button" size="sm" variant="ghost" onClick={() => setShowForm(false)}>
+                      Cancel
+                    </Button>
+                  </div>
+                </form>
+              )}
+
+              {/* Reviews list */}
+              {reviewsLoading ? (
+                <div className="text-sm text-muted-foreground py-4 text-center">Loading reviews…</div>
+              ) : reviews.length === 0 ? (
+                <div className="text-center py-8">
+                  <Star className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
+                  <p className="text-sm text-muted-foreground">No reviews yet.</p>
+                  {user?.role === "employer" && !showForm && (
+                    <button onClick={() => setShowForm(true)} className="text-xs text-primary hover:underline mt-1">
+                      Be the first to review
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {reviews.map(r => (
+                    <div key={r.id} className="border-b border-border last:border-0 pb-4 last:pb-0">
+                      <div className="flex items-start justify-between gap-2 mb-1">
+                        <div>
+                          <span className="text-sm font-medium text-foreground">{r.employerName}</span>
+                          {r.employerNeighbourhood && (
+                            <span className="text-xs text-muted-foreground ml-2">· {r.employerNeighbourhood}</span>
+                          )}
+                        </div>
+                        <span className="text-xs text-muted-foreground shrink-0">{formatDate(r.createdAt)}</span>
+                      </div>
+                      <StarRow value={r.rating} size="sm" />
+                      {r.review && <p className="text-sm text-foreground mt-1.5 leading-relaxed">{r.review}</p>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
