@@ -18,6 +18,10 @@ function signToken(userId: number, role: string): string {
   return jwt.sign({ userId, role }, JWT_SECRET, { expiresIn: "7d" });
 }
 
+function generateReferralCode(): string {
+  return "KV" + crypto.randomBytes(3).toString("hex").toUpperCase();
+}
+
 function formatUser(user: typeof usersTable.$inferSelect) {
   return {
     id: user.id,
@@ -26,6 +30,8 @@ function formatUser(user: typeof usersTable.$inferSelect) {
     role: user.role,
     phone: user.phone,
     neighbourhood: user.neighbourhood,
+    referralCode: user.referralCode,
+    creditBalance: user.creditBalance ?? 0,
     createdAt: user.createdAt.toISOString(),
   };
 }
@@ -37,6 +43,7 @@ router.post("/auth/register", async (req, res): Promise<void> => {
     return;
   }
   const { email, password, name, role, phone, neighbourhood } = parsed.data;
+  const incomingRefCode = typeof req.body.referralCode === "string" ? req.body.referralCode.trim().toUpperCase() : null;
 
   const existing = await db.select().from(usersTable).where(eq(usersTable.email, email));
   if (existing.length > 0) {
@@ -44,10 +51,34 @@ router.post("/auth/register", async (req, res): Promise<void> => {
     return;
   }
 
+  // Look up referrer if a referral code was supplied
+  let referredBy: number | undefined;
+  let referrerId: number | undefined;
+  let referrerCredit = 0;
+  if (incomingRefCode) {
+    const [referrer] = await db.select().from(usersTable).where(eq(usersTable.referralCode, incomingRefCode));
+    if (referrer) {
+      referredBy = referrer.id;
+      referrerId = referrer.id;
+      referrerCredit = (referrer.creditBalance ?? 0) + 500;
+    }
+  }
+
   const passwordHash = await bcrypt.hash(password, 10);
+  const referralCode = generateReferralCode();
+
   const [user] = await db.insert(usersTable).values({
     email, passwordHash, name, role, phone, neighbourhood,
+    referralCode,
+    referredBy,
   }).returning();
+
+  // Award KSh 500 credit to referrer
+  if (referrerId != null) {
+    await db.update(usersTable)
+      .set({ creditBalance: referrerCredit })
+      .where(eq(usersTable.id, referrerId));
+  }
 
   const token = signToken(user.id, user.role);
   res.status(201).json({ user: formatUser(user), token });
@@ -87,6 +118,23 @@ router.get("/auth/me", requireAuth, async (req: AuthRequest, res): Promise<void>
   res.json(formatUser(user));
 });
 
+router.get("/auth/me/referral", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  const [user] = await db.select({
+    referralCode: usersTable.referralCode,
+    creditBalance: usersTable.creditBalance,
+  }).from(usersTable).where(eq(usersTable.id, req.userId!));
+  if (!user) { res.status(404).json({ error: "User not found" }); return; }
+
+  const referred = await db.select({ id: usersTable.id })
+    .from(usersTable).where(eq(usersTable.referredBy, req.userId!));
+
+  res.json({
+    referralCode: user.referralCode,
+    creditBalance: user.creditBalance ?? 0,
+    referralCount: referred.length,
+  });
+});
+
 router.post("/auth/forgot-password", async (req, res): Promise<void> => {
   const { email } = req.body;
   if (!email || typeof email !== "string") {
@@ -94,19 +142,16 @@ router.post("/auth/forgot-password", async (req, res): Promise<void> => {
   }
   const [user] = await db.select().from(usersTable).where(eq(usersTable.email, email.toLowerCase().trim()));
   if (!user) {
-    // Don't reveal whether email exists — always return success
     res.json({ message: "If that email is registered, a reset link has been sent." }); return;
   }
 
-  // Clean up expired tokens for this user
   for (const [t, data] of resetTokens.entries()) {
     if (data.userId === user.id || data.expiresAt < Date.now()) resetTokens.delete(t);
   }
 
   const token = crypto.randomBytes(32).toString("hex");
-  resetTokens.set(token, { userId: user.id, email: user.email, expiresAt: Date.now() + 60 * 60 * 1000 }); // 1 hour
+  resetTokens.set(token, { userId: user.id, email: user.email, expiresAt: Date.now() + 60 * 60 * 1000 });
 
-  // In production this would be an emailed link. We return it directly for demo purposes.
   const baseUrl = (process.env.REPLIT_DOMAINS ?? "localhost:80").split(",")[0];
   const resetUrl = `https://${baseUrl}/reset-password?token=${token}`;
 

@@ -1,4 +1,4 @@
-import { pgTable, serial, text, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, timestamp, jsonb, integer } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -16,6 +16,9 @@ export const usersTable = pgTable("users", {
     re_vetting_due: boolean;
     weekly_digest: boolean;
   }>().default({ report_ready: true, payment_confirmed: true, re_vetting_due: true, weekly_digest: false }),
+  referralCode: text("referral_code").unique(),
+  referredBy: integer("referred_by"),
+  creditBalance: integer("credit_balance").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

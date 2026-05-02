@@ -4,7 +4,7 @@ import AppLayout from "@/components/layout/AppLayout";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import { formatKsh, formatDate } from "@/lib/utils";
-import { CreditCard, Receipt, ArrowLeft, TrendingUp, Calendar, Hash, Download } from "lucide-react";
+import { CreditCard, Receipt, ArrowLeft, TrendingUp, Calendar, Hash, Download, Gift } from "lucide-react";
 import { API_BASE } from "@/lib/api";
 
 interface Transaction {
@@ -43,6 +43,7 @@ export default function Billing() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [exporting, setExporting] = useState(false);
+  const [creditBalance, setCreditBalance] = useState<number | null>(null);
 
   async function handleExport() {
     if (!token) return;
@@ -70,6 +71,13 @@ export default function Billing() {
       .then(setData)
       .catch(e => setError(e instanceof Error ? e.message : "Failed to load billing history"))
       .finally(() => setLoading(false));
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+    apiFetch<{ creditBalance: number }>("/auth/me/referral", { token })
+      .then(d => setCreditBalance(d.creditBalance))
+      .catch(() => {});
   }, [token]);
 
   return (
@@ -102,6 +110,16 @@ export default function Billing() {
         )}
         {error && (
           <div className="bg-red-50 text-red-700 text-sm px-4 py-3 rounded-xl border border-red-100 mb-6">{error}</div>
+        )}
+
+        {creditBalance != null && creditBalance > 0 && (
+          <div className="flex items-center gap-3 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 mb-6">
+            <Gift className="w-5 h-5 text-emerald-600 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-emerald-800">You have KSh {creditBalance.toLocaleString()} referral credit</p>
+              <p className="text-xs text-emerald-700">This credit will be applied to your next vetting request automatically.</p>
+            </div>
+          </div>
         )}
 
         {data && (

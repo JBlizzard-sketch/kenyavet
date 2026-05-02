@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
-import { Shield } from "lucide-react";
+import { Shield, Gift } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,10 +14,20 @@ export default function Register() {
   const [, navigate] = useLocation();
   const { login } = useAuth();
   const [form, setForm] = useState({
-    name: "", email: "", password: "", phone: "", neighbourhood: "",
+    name: "", email: "", password: "", phone: "", neighbourhood: "", referralCode: "",
   });
+  const [referralBanner, setReferralBanner] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const ref = params.get("ref");
+    if (ref) {
+      setForm(f => ({ ...f, referralCode: ref.toUpperCase() }));
+      setReferralBanner(true);
+    }
+  }, []);
 
   function set(k: string, v: string) {
     setForm(f => ({ ...f, [k]: v }));
@@ -28,9 +38,11 @@ export default function Register() {
     setError("");
     setLoading(true);
     try {
+      const body: Record<string, string> = { ...form, role: "employer" };
+      if (!body.referralCode) delete body.referralCode;
       const data = await apiFetch<{ token: string; user: any }>("/auth/register", {
         method: "POST",
-        body: JSON.stringify({ ...form, role: "employer" }),
+        body,
       });
       login(data.token, data.user);
       navigate("/dashboard");
@@ -54,6 +66,16 @@ export default function Register() {
           <h1 className="text-2xl font-serif font-bold text-gray-900">Create your account</h1>
           <p className="text-gray-500 text-sm mt-1">Start vetting your domestic staff today</p>
         </div>
+
+        {referralBanner && (
+          <div className="mb-4 flex items-center gap-3 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
+            <Gift className="w-5 h-5 text-emerald-600 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-emerald-800">You were invited!</p>
+              <p className="text-xs text-emerald-700">Your friend earns KSh 500 credit when you join.</p>
+            </div>
+          </div>
+        )}
 
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-7">
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -90,6 +112,18 @@ export default function Register() {
             <div className="space-y-1.5">
               <Label htmlFor="password">Password</Label>
               <Input id="password" type="password" placeholder="Minimum 8 characters" value={form.password} onChange={e => set("password", e.target.value)} required minLength={8} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="referralCode" className="flex items-center gap-1.5 text-muted-foreground">
+                <Gift className="w-3.5 h-3.5" /> Referral code <span className="text-xs">(optional)</span>
+              </Label>
+              <Input
+                id="referralCode"
+                placeholder="e.g. KVAB12CD"
+                value={form.referralCode}
+                onChange={e => set("referralCode", e.target.value.toUpperCase())}
+                className="uppercase tracking-widest font-mono text-sm"
+              />
             </div>
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? "Creating account…" : "Create account"}

@@ -3,7 +3,7 @@ import AppLayout from "@/components/layout/AppLayout";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import { toast } from "@/hooks/use-toast";
-import { User, Phone, MapPin, Mail, Shield, Save, CheckCircle, Lock, Eye, EyeOff, Bell } from "lucide-react";
+import { User, Phone, MapPin, Mail, Shield, Save, CheckCircle, Lock, Eye, EyeOff, Bell, Copy, Gift, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -40,6 +40,29 @@ export default function Profile() {
     report_ready: true, payment_confirmed: true, re_vetting_due: true, weekly_digest: false,
   });
   const [notifSaving, setNotifSaving] = useState(false);
+
+  const [referralStats, setReferralStats] = useState<{ referralCode: string | null; creditBalance: number; referralCount: number } | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!token) return;
+    apiFetch<{ referralCode: string | null; creditBalance: number; referralCount: number }>("/auth/me/referral", { token })
+      .then(data => setReferralStats(data))
+      .catch(() => {});
+  }, [token]);
+
+  const referralLink = referralStats?.referralCode
+    ? `${window.location.origin}/register?ref=${referralStats.referralCode}`
+    : "";
+
+  function handleCopyLink() {
+    if (!referralLink) return;
+    navigator.clipboard.writeText(referralLink).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+      toast({ title: "Link copied!", description: "Share it with friends to earn KSh 500 each." });
+    });
+  }
 
   useEffect(() => {
     if (!token) return;
@@ -377,6 +400,54 @@ export default function Profile() {
           <p className="text-xs text-muted-foreground mt-4">
             Note: Transactional emails (payment receipts, report delivery) are always sent regardless of these settings.
           </p>
+        </div>
+
+        {/* Refer & Earn */}
+        <div className="bg-card rounded-xl border border-card-border p-6">
+          <h2 className="font-semibold text-foreground mb-1 flex items-center gap-2">
+            <Gift className="w-4 h-4 text-primary" /> Refer &amp; Earn
+          </h2>
+          <p className="text-xs text-muted-foreground mb-5">
+            Share your referral link. Earn <span className="font-semibold text-foreground">KSh 500</span> credit for every friend who joins KenyaVet.
+          </p>
+
+          <div className="grid grid-cols-2 gap-3 mb-5">
+            <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-xl p-4 text-center border border-emerald-100 dark:border-emerald-800">
+              <p className="text-2xl font-bold text-emerald-700 dark:text-emerald-400">{referralStats?.referralCount ?? 0}</p>
+              <p className="text-xs text-muted-foreground mt-0.5 flex items-center justify-center gap-1">
+                <Users className="w-3 h-3" /> Friends referred
+              </p>
+            </div>
+            <div className="bg-primary/5 rounded-xl p-4 text-center border border-primary/10">
+              <p className="text-2xl font-bold text-primary">KSh {(referralStats?.creditBalance ?? 0).toLocaleString()}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Credits earned</p>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Your referral link</Label>
+            <div className="flex gap-2">
+              <Input
+                readOnly
+                value={referralLink || "Loading…"}
+                className="font-mono text-xs bg-muted/40"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="shrink-0 gap-1.5"
+                onClick={handleCopyLink}
+                disabled={!referralLink}
+              >
+                {copied ? <CheckCircle className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+                {copied ? "Copied!" : "Copy"}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Your code: <span className="font-mono font-semibold text-foreground">{referralStats?.referralCode ?? "—"}</span>
+            </p>
+          </div>
         </div>
       </div>
     </AppLayout>

@@ -356,7 +356,7 @@ function StaffCard({ member, onStatusChange, onQr, hasReport }: {
               <QrCode className="w-3 h-3" /> QR
             </Button>
           )}
-          <Link href="/vetting-requests/new">
+          <Link href={`/vetting-requests/new?workerName=${encodeURIComponent(member.workerName)}&workerRole=${encodeURIComponent(member.role)}${member.phone ? `&workerPhone=${encodeURIComponent(member.phone)}` : ""}`}>
             <Button size="sm" variant="outline" className="gap-1.5 text-xs">
               <Shield className="w-3 h-3" /> Re-Vet
             </Button>
