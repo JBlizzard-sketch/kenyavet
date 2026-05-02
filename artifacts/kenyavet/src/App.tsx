@@ -24,6 +24,9 @@ import Profile from "@/pages/profile";
 import Receipt from "@/pages/receipt";
 import Ops from "@/pages/ops";
 import Billing from "@/pages/billing";
+import ForgotPassword from "@/pages/forgot-password";
+import ResetPassword from "@/pages/reset-password";
+import WorkerPublic from "@/pages/worker-public";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient({
@@ -43,6 +46,9 @@ function Router() {
       <Route path="/login" component={Login} />
       <Route path="/register" component={Register} />
       <Route path="/verify" component={Verify} />
+      <Route path="/w/:qrCode" component={WorkerPublic} />
+      <Route path="/forgot-password" component={ForgotPassword} />
+      <Route path="/reset-password" component={ResetPassword} />
 
       <Route path="/dashboard">
         {() => <PrivateRoute component={Dashboard} />}
