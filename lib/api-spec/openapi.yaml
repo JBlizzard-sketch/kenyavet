@@ -1,22 +1,39 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: KenyaVet Domestic Staff Vetting Platform API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: auth
+    description: Authentication
+  - name: packages
+    description: Vetting packages and pricing
+  - name: vetting-requests
+    description: Vetting request management
+  - name: references
+    description: Reference contacts for vetting
+  - name: workers
+    description: Vetted worker profiles and search
+  - name: reports
+    description: Vetting reports
+  - name: dashboard
+    description: Employer dashboard summaries
+  - name: admin
+    description: Admin / ops team operations
+  - name: staff
+    description: Employer staff management
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,13 +41,1161 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  # ─── AUTH ────────────────────────────────────────────────────────────────────
+  /auth/register:
+    post:
+      operationId: registerUser
+      tags: [auth]
+      summary: Register a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterBody"
+      responses:
+        "201":
+          description: Registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Email already in use
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/login:
+    post:
+      operationId: loginUser
+      tags: [auth]
+      summary: Login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginBody"
+      responses:
+        "200":
+          description: Authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/logout:
+    post:
+      operationId: logoutUser
+      tags: [auth]
+      summary: Logout
+      responses:
+        "204":
+          description: Logged out
+
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Get current user
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ─── PACKAGES ────────────────────────────────────────────────────────────────
+  /packages:
+    get:
+      operationId: listPackages
+      tags: [packages]
+      summary: List available vetting packages
+      responses:
+        "200":
+          description: Package list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/VettingPackage"
+
+  # ─── VETTING REQUESTS ─────────────────────────────────────────────────────────
+  /vetting-requests:
+    get:
+      operationId: listVettingRequests
+      tags: [vetting-requests]
+      summary: List vetting requests for the current employer
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Vetting request list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VettingRequestList"
+
+    post:
+      operationId: createVettingRequest
+      tags: [vetting-requests]
+      summary: Submit a new vetting request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateVettingRequestBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VettingRequest"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /vetting-requests/{id}:
+    get:
+      operationId: getVettingRequest
+      tags: [vetting-requests]
+      summary: Get a vetting request by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Vetting request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VettingRequest"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    patch:
+      operationId: updateVettingRequest
+      tags: [vetting-requests]
+      summary: Update a vetting request
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateVettingRequestBody"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VettingRequest"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /vetting-requests/{id}/steps:
+    get:
+      operationId: getVettingSteps
+      tags: [vetting-requests]
+      summary: Get step-by-step progress for a vetting request
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Vetting steps
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/VettingStep"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ─── REFERENCES ──────────────────────────────────────────────────────────────
+  /vetting-requests/{id}/references:
+    get:
+      operationId: listReferences
+      tags: [references]
+      summary: List reference contacts for a vetting request
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Reference list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ReferenceContact"
+
+    post:
+      operationId: addReference
+      tags: [references]
+      summary: Add a reference contact to a vetting request
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateReferenceBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReferenceContact"
+
+  /vetting-requests/{requestId}/references/{referenceId}:
+    patch:
+      operationId: updateReference
+      tags: [references]
+      summary: Update a reference contact (record call outcome)
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: referenceId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateReferenceBody"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReferenceContact"
+
+  # ─── WORKERS ────────────────────────────────────────────────────────────────
+  /workers:
+    get:
+      operationId: listWorkers
+      tags: [workers]
+      summary: Search vetted worker database
+      parameters:
+        - name: role
+          in: query
+          schema:
+            type: string
+        - name: query
+          in: query
+          schema:
+            type: string
+        - name: minScore
+          in: query
+          schema:
+            type: integer
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Worker search results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkerList"
+
+  /workers/{id}:
+    get:
+      operationId: getWorker
+      tags: [workers]
+      summary: Get a vetted worker profile
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Worker profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Worker"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /workers/verify/{qrCode}:
+    get:
+      operationId: verifyWorkerByQr
+      tags: [workers]
+      summary: Verify a worker by their QR code
+      parameters:
+        - name: qrCode
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkerVerification"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ─── REPORTS ─────────────────────────────────────────────────────────────────
+  /reports/{id}:
+    get:
+      operationId: getReport
+      tags: [reports]
+      summary: Get a vetting report
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Vetting report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VettingReport"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ─── DASHBOARD ───────────────────────────────────────────────────────────────
+  /dashboard/summary:
+    get:
+      operationId: getDashboardSummary
+      tags: [dashboard]
+      summary: Get employer dashboard summary stats
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+
+  /dashboard/activity:
+    get:
+      operationId: getDashboardActivity
+      tags: [dashboard]
+      summary: Get recent activity feed for the employer
+      responses:
+        "200":
+          description: Activity feed
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ActivityItem"
+
+  # ─── EMPLOYER STAFF RECORDS ──────────────────────────────────────────────────
+  /staff:
+    get:
+      operationId: listStaff
+      tags: [staff]
+      summary: List current staff for the employer
+      responses:
+        "200":
+          description: Staff list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/StaffRecord"
+
+    post:
+      operationId: addStaff
+      tags: [staff]
+      summary: Add a staff member to the employer roster
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateStaffBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StaffRecord"
+
+  /staff/{id}:
+    patch:
+      operationId: updateStaff
+      tags: [staff]
+      summary: Update a staff record
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateStaffBody"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StaffRecord"
+
+    delete:
+      operationId: removeStaff
+      tags: [staff]
+      summary: Remove a staff member from roster
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Removed
+
+  # ─── ADMIN ───────────────────────────────────────────────────────────────────
+  /admin/queue:
+    get:
+      operationId: getAdminQueue
+      tags: [admin]
+      summary: Get ops team vetting queue
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: tier
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Ops queue
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminQueueResponse"
+
+  /admin/vetting-requests/{id}/status:
+    patch:
+      operationId: updateAdminVettingStatus
+      tags: [admin]
+      summary: Update vetting request status (ops team)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAdminStatusBody"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VettingRequest"
+
+  /admin/stats:
+    get:
+      operationId: getAdminStats
+      tags: [admin]
+      summary: Get platform-wide admin statistics
+      responses:
+        "200":
+          description: Admin stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminStats"
+
 components:
   schemas:
     HealthStatus:
       type: object
+      required: [status]
       properties:
         status:
           type: string
-      required:
-        - status
 
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+    # ─── AUTH ──────────────────────────────────────────────────────────────────
+    RegisterBody:
+      type: object
+      required: [email, password, name, role]
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+        name:
+          type: string
+        role:
+          type: string
+          enum: [employer, worker, admin, ops]
+        phone:
+          type: ["string", "null"]
+        neighbourhood:
+          type: ["string", "null"]
+
+    LoginBody:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+
+    AuthResponse:
+      type: object
+      required: [user, token]
+      properties:
+        user:
+          $ref: "#/components/schemas/User"
+        token:
+          type: string
+
+    User:
+      type: object
+      required: [id, email, name, role, createdAt]
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+        name:
+          type: string
+        role:
+          type: string
+        phone:
+          type: ["string", "null"]
+        neighbourhood:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    # ─── PACKAGES ──────────────────────────────────────────────────────────────
+    VettingPackage:
+      type: object
+      required: [id, name, slug, priceKsh, description, features, turnaroundHours]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        slug:
+          type: string
+        priceKsh:
+          type: integer
+        description:
+          type: string
+        features:
+          type: array
+          items:
+            type: string
+        turnaroundHours:
+          type: integer
+        popular:
+          type: boolean
+
+    # ─── VETTING REQUESTS ──────────────────────────────────────────────────────
+    CreateVettingRequestBody:
+      type: object
+      required: [workerName, workerPhone, workerIdNumber, workerRole, packageId]
+      properties:
+        workerName:
+          type: string
+        workerPhone:
+          type: string
+        workerIdNumber:
+          type: string
+        workerRole:
+          type: string
+        packageId:
+          type: integer
+        workerPhotoUrl:
+          type: ["string", "null"]
+        workerAddress:
+          type: ["string", "null"]
+        notes:
+          type: ["string", "null"]
+
+    UpdateVettingRequestBody:
+      type: object
+      properties:
+        workerName:
+          type: ["string", "null"]
+        workerPhone:
+          type: ["string", "null"]
+        workerAddress:
+          type: ["string", "null"]
+        notes:
+          type: ["string", "null"]
+
+    VettingRequest:
+      type: object
+      required: [id, employerId, workerName, workerPhone, workerIdNumber, workerRole, packageId, packageName, status, trustScore, createdAt]
+      properties:
+        id:
+          type: integer
+        employerId:
+          type: integer
+        workerName:
+          type: string
+        workerPhone:
+          type: string
+        workerIdNumber:
+          type: string
+        workerRole:
+          type: string
+        packageId:
+          type: integer
+        packageName:
+          type: string
+        status:
+          type: string
+          enum: [pending_payment, paid, in_progress, completed, cancelled]
+        trustScore:
+          type: ["integer", "null"]
+        workerPhotoUrl:
+          type: ["string", "null"]
+        workerAddress:
+          type: ["string", "null"]
+        notes:
+          type: ["string", "null"]
+        reportId:
+          type: ["integer", "null"]
+        completedAt:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+
+    VettingRequestList:
+      type: object
+      required: [items, total, page, limit]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/VettingRequest"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+
+    VettingStep:
+      type: object
+      required: [id, vettingRequestId, stepName, stepKey, status, order]
+      properties:
+        id:
+          type: integer
+        vettingRequestId:
+          type: integer
+        stepName:
+          type: string
+        stepKey:
+          type: string
+          enum: [identity_check, reference_calls, dci_certificate, social_media_review, address_visit, report_generation]
+        status:
+          type: string
+          enum: [pending, in_progress, completed, failed, skipped]
+        order:
+          type: integer
+        notes:
+          type: ["string", "null"]
+        completedAt:
+          type: ["string", "null"]
+
+    # ─── REFERENCES ────────────────────────────────────────────────────────────
+    CreateReferenceBody:
+      type: object
+      required: [name, phone, relationship, employerName]
+      properties:
+        name:
+          type: string
+        phone:
+          type: string
+        relationship:
+          type: string
+        employerName:
+          type: string
+        yearsWorked:
+          type: ["integer", "null"]
+
+    UpdateReferenceBody:
+      type: object
+      properties:
+        callStatus:
+          type: ["string", "null"]
+          enum: [pending, contacted, no_answer, completed, null]
+        callSummary:
+          type: ["string", "null"]
+        rehireWilling:
+          type: ["boolean", "null"]
+        overallRating:
+          type: ["integer", "null"]
+        notes:
+          type: ["string", "null"]
+
+    ReferenceContact:
+      type: object
+      required: [id, vettingRequestId, name, phone, relationship, employerName, callStatus, createdAt]
+      properties:
+        id:
+          type: integer
+        vettingRequestId:
+          type: integer
+        name:
+          type: string
+        phone:
+          type: string
+        relationship:
+          type: string
+        employerName:
+          type: string
+        yearsWorked:
+          type: ["integer", "null"]
+        callStatus:
+          type: string
+          enum: [pending, contacted, no_answer, completed]
+        callSummary:
+          type: ["string", "null"]
+        rehireWilling:
+          type: ["boolean", "null"]
+        overallRating:
+          type: ["integer", "null"]
+        notes:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    # ─── WORKERS ───────────────────────────────────────────────────────────────
+    Worker:
+      type: object
+      required: [id, name, role, trustScore, verifiedAt, qrCode, vetCount, createdAt]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        role:
+          type: string
+        trustScore:
+          type: integer
+        photoUrl:
+          type: ["string", "null"]
+        neighbourhood:
+          type: ["string", "null"]
+        yearsExperience:
+          type: ["integer", "null"]
+        languages:
+          type: array
+          items:
+            type: string
+        verifiedAt:
+          type: string
+        qrCode:
+          type: string
+        vetCount:
+          type: integer
+        badges:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+
+    WorkerList:
+      type: object
+      required: [items, total, page, limit]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Worker"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+
+    WorkerVerification:
+      type: object
+      required: [worker, isValid, verifiedAt]
+      properties:
+        worker:
+          $ref: "#/components/schemas/Worker"
+        isValid:
+          type: boolean
+        verifiedAt:
+          type: string
+
+    # ─── REPORTS ───────────────────────────────────────────────────────────────
+    VettingReport:
+      type: object
+      required: [id, vettingRequestId, workerName, workerRole, overallTrustScore, scoreBreakdown, summary, completedAt, packageName]
+      properties:
+        id:
+          type: integer
+        vettingRequestId:
+          type: integer
+        workerName:
+          type: string
+        workerRole:
+          type: string
+        workerPhotoUrl:
+          type: ["string", "null"]
+        packageName:
+          type: string
+        overallTrustScore:
+          type: integer
+        scoreBreakdown:
+          $ref: "#/components/schemas/ScoreBreakdown"
+        summary:
+          type: string
+        identityVerified:
+          type: boolean
+        dciCertificateStatus:
+          type: string
+        socialMediaSummary:
+          type: ["string", "null"]
+        referencesSummary:
+          type: ["string", "null"]
+        addressVerified:
+          type: ["boolean", "null"]
+        flags:
+          type: array
+          items:
+            type: string
+        completedAt:
+          type: string
+
+    ScoreBreakdown:
+      type: object
+      required: [identity, references, dciCertificate, socialMedia]
+      properties:
+        identity:
+          type: integer
+        references:
+          type: integer
+        dciCertificate:
+          type: integer
+        socialMedia:
+          type: integer
+        addressVisit:
+          type: ["integer", "null"]
+
+    # ─── DASHBOARD ─────────────────────────────────────────────────────────────
+    DashboardSummary:
+      type: object
+      required: [totalRequests, completedRequests, inProgressRequests, pendingRequests, totalStaff, upcomingRenewals]
+      properties:
+        totalRequests:
+          type: integer
+        completedRequests:
+          type: integer
+        inProgressRequests:
+          type: integer
+        pendingRequests:
+          type: integer
+        totalStaff:
+          type: integer
+        upcomingRenewals:
+          type: integer
+        averageTrustScore:
+          type: ["integer", "null"]
+
+    ActivityItem:
+      type: object
+      required: [id, type, message, createdAt]
+      properties:
+        id:
+          type: integer
+        type:
+          type: string
+          enum: [vetting_submitted, vetting_completed, vetting_in_progress, staff_added, report_ready, renewal_due]
+        message:
+          type: string
+        workerName:
+          type: ["string", "null"]
+        linkId:
+          type: ["integer", "null"]
+        createdAt:
+          type: string
+
+    # ─── STAFF RECORDS ─────────────────────────────────────────────────────────
+    CreateStaffBody:
+      type: object
+      required: [name, role, startDate]
+      properties:
+        name:
+          type: string
+        role:
+          type: string
+        startDate:
+          type: string
+        phone:
+          type: ["string", "null"]
+        photoUrl:
+          type: ["string", "null"]
+        notes:
+          type: ["string", "null"]
+        vettingRequestId:
+          type: ["integer", "null"]
+
+    UpdateStaffBody:
+      type: object
+      properties:
+        name:
+          type: ["string", "null"]
+        role:
+          type: ["string", "null"]
+        phone:
+          type: ["string", "null"]
+        notes:
+          type: ["string", "null"]
+        active:
+          type: ["boolean", "null"]
+
+    StaffRecord:
+      type: object
+      required: [id, employerId, name, role, startDate, active, createdAt]
+      properties:
+        id:
+          type: integer
+        employerId:
+          type: integer
+        name:
+          type: string
+        role:
+          type: string
+        startDate:
+          type: string
+        phone:
+          type: ["string", "null"]
+        photoUrl:
+          type: ["string", "null"]
+        notes:
+          type: ["string", "null"]
+        active:
+          type: boolean
+        vettingRequestId:
+          type: ["integer", "null"]
+        trustScore:
+          type: ["integer", "null"]
+        renewalDueAt:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    # ─── ADMIN ─────────────────────────────────────────────────────────────────
+    UpdateAdminStatusBody:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [pending_payment, paid, in_progress, completed, cancelled]
+        adminNotes:
+          type: ["string", "null"]
+
+    AdminQueueResponse:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminQueueItem"
+        total:
+          type: integer
+        byStatus:
+          $ref: "#/components/schemas/StatusCounts"
+
+    AdminQueueItem:
+      type: object
+      required: [id, workerName, workerRole, packageName, status, employerName, createdAt]
+      properties:
+        id:
+          type: integer
+        workerName:
+          type: string
+        workerRole:
+          type: string
+        packageName:
+          type: string
+        status:
+          type: string
+        employerName:
+          type: string
+        employerPhone:
+          type: ["string", "null"]
+        priority:
+          type: string
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+
+    StatusCounts:
+      type: object
+      required: [pending_payment, paid, in_progress, completed, cancelled]
+      properties:
+        pending_payment:
+          type: integer
+        paid:
+          type: integer
+        in_progress:
+          type: integer
+        completed:
+          type: integer
+        cancelled:
+          type: integer
+
+    AdminStats:
+      type: object
+      required: [totalRequests, completedToday, averageTurnaroundHours, totalWorkers, revenueThisMonth]
+      properties:
+        totalRequests:
+          type: integer
+        completedToday:
+          type: integer
+        averageTurnaroundHours:
+          type: integer
+        totalWorkers:
+          type: integer
+        revenueThisMonth:
+          type: integer
+        requestsByPackage:
+          type: object
+          additionalProperties:
+            type: integer
