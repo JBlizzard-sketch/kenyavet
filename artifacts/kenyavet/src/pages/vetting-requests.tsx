@@ -4,9 +4,10 @@ import AppLayout from "@/components/layout/AppLayout";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import { formatDate, formatKsh, getStatusColor, getStatusLabel, getTrustScoreBg } from "@/lib/utils";
-import { Plus, ClipboardList, Search, Filter } from "lucide-react";
+import { Plus, ClipboardList, Search, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface VettingRequest {
   id: number;
@@ -21,11 +22,20 @@ interface VettingRequest {
   updatedAt: string;
 }
 
+const STATUS_OPTIONS = [
+  { value: "all", label: "All Statuses" },
+  { value: "pending_payment", label: "Pending Payment" },
+  { value: "in_progress", label: "In Progress" },
+  { value: "completed", label: "Completed" },
+  { value: "cancelled", label: "Cancelled" },
+];
+
 export default function VettingRequests() {
   const { token } = useAuth();
   const [requests, setRequests] = useState<VettingRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
 
   useEffect(() => {
     async function load() {
@@ -41,11 +51,16 @@ export default function VettingRequests() {
     load();
   }, [token]);
 
-  const filtered = requests.filter(r =>
-    r.workerName.toLowerCase().includes(search.toLowerCase()) ||
-    r.workerRole.toLowerCase().includes(search.toLowerCase()) ||
-    r.workerIdNumber.includes(search)
-  );
+  const filtered = requests.filter(r => {
+    const matchSearch =
+      r.workerName.toLowerCase().includes(search.toLowerCase()) ||
+      r.workerRole.toLowerCase().includes(search.toLowerCase()) ||
+      r.workerIdNumber.includes(search);
+    const matchStatus = statusFilter === "all" || r.status === statusFilter;
+    return matchSearch && matchStatus;
+  });
+
+  const pendingPaymentCount = requests.filter(r => r.status === "pending_payment").length;
 
   return (
     <AppLayout>
@@ -53,7 +68,7 @@ export default function VettingRequests() {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
           <div>
             <h1 className="text-2xl font-serif font-bold text-foreground">Vetting Requests</h1>
-            <p className="text-muted-foreground text-sm mt-0.5">{requests.length} total requests</p>
+            <p className="text-muted-foreground text-sm mt-0.5">{requests.length} total request{requests.length !== 1 ? "s" : ""}</p>
           </div>
           <Link href="/vetting-requests/new">
             <Button className="gap-2">
@@ -63,15 +78,43 @@ export default function VettingRequests() {
           </Link>
         </div>
 
-        {/* Search */}
-        <div className="relative mb-5">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            className="pl-9"
-            placeholder="Search by name, role, or ID number…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
+        {/* Pending payment banner */}
+        {pendingPaymentCount > 0 && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-5 flex items-center gap-3">
+            <Smartphone className="w-5 h-5 text-amber-600 shrink-0" />
+            <p className="text-sm text-amber-800 flex-1">
+              <span className="font-semibold">{pendingPaymentCount} request{pendingPaymentCount !== 1 ? "s" : ""}</span> awaiting M-Pesa payment.
+            </p>
+            <button
+              onClick={() => setStatusFilter("pending_payment")}
+              className="text-xs font-medium text-amber-700 underline hover:text-amber-900"
+            >
+              Filter
+            </button>
+          </div>
+        )}
+
+        {/* Filters */}
+        <div className="flex flex-col sm:flex-row gap-3 mb-5">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              className="pl-9"
+              placeholder="Search by name, role, or ID number…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </div>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-44">
+              <SelectValue placeholder="All statuses" />
+            </SelectTrigger>
+            <SelectContent>
+              {STATUS_OPTIONS.map(o => (
+                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         {/* Table */}
@@ -82,9 +125,9 @@ export default function VettingRequests() {
             <div className="py-16 text-center">
               <ClipboardList className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
               <p className="text-muted-foreground text-sm">
-                {search ? "No results found." : "No vetting requests yet."}
+                {search || statusFilter !== "all" ? "No results match your filters." : "No vetting requests yet."}
               </p>
-              {!search && (
+              {!search && statusFilter === "all" && (
                 <Link href="/vetting-requests/new">
                   <Button size="sm" className="mt-4">Submit first request</Button>
                 </Link>
@@ -113,13 +156,13 @@ export default function VettingRequests() {
                           </div>
                           <div>
                             <p className="font-medium text-foreground">{req.workerName}</p>
-                            <p className="text-xs text-muted-foreground">{req.workerRole}</p>
+                            <p className="text-xs text-muted-foreground">{req.workerRole} · ID {req.workerIdNumber}</p>
                           </div>
                         </div>
                       </td>
                       <td className="px-4 py-3 text-muted-foreground hidden sm:table-cell">
-                        {req.packageName}
-                        <div className="text-xs">{formatKsh(req.priceKsh)}</div>
+                        <p className="text-xs text-foreground">{req.packageName}</p>
+                        <p className="text-xs">{formatKsh(req.priceKsh)}</p>
                       </td>
                       <td className="px-4 py-3 hidden md:table-cell">
                         {req.trustScore != null ? (
@@ -132,6 +175,11 @@ export default function VettingRequests() {
                         <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${getStatusColor(req.status)}`}>
                           {getStatusLabel(req.status)}
                         </span>
+                        {req.status === "pending_payment" && (
+                          <p className="text-xs text-amber-600 mt-0.5 flex items-center gap-1">
+                            <Smartphone className="w-3 h-3" /> Pay to start
+                          </p>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-muted-foreground text-xs hidden lg:table-cell">{formatDate(req.createdAt)}</td>
                       <td className="px-4 py-3">

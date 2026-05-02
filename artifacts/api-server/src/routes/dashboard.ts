@@ -41,4 +41,23 @@ router.get("/dashboard/recent-requests", requireAuth, async (req: AuthRequest, r
   })));
 });
 
+router.get("/dashboard/activity", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  const uid = req.userId!;
+  const items = await db
+    .select()
+    .from(activityItemsTable)
+    .where(eq(activityItemsTable.userId, uid))
+    .orderBy(desc(activityItemsTable.createdAt))
+    .limit(20);
+
+  res.json(items.map(item => ({
+    id: item.id,
+    type: item.type,
+    message: item.message,
+    workerName: item.workerName,
+    linkId: item.linkId,
+    createdAt: item.createdAt.toISOString(),
+  })));
+});
+
 export default router;

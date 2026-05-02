@@ -1,11 +1,12 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
+import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
   LayoutDashboard, ClipboardList, Users, FileText,
   UserCog, Settings, LogOut, Menu, X, Shield,
-  ChevronRight, Bell
+  ChevronRight, Bell, CheckCircle, TrendingUp, CreditCard, AlertCircle
 } from "lucide-react";
 
 interface NavItem {
@@ -13,6 +14,15 @@ interface NavItem {
   href: string;
   icon: React.ElementType;
   roles?: string[];
+}
+
+interface ActivityItem {
+  id: number;
+  type: string;
+  message: string;
+  workerName: string | null;
+  linkId: number | null;
+  createdAt: string;
 }
 
 const navItems: NavItem[] = [
@@ -24,14 +34,66 @@ const navItems: NavItem[] = [
   { label: "Admin", href: "/admin", icon: Settings, roles: ["admin", "ops"] },
 ];
 
+function activityIcon(type: string) {
+  switch (type) {
+    case "report_ready": return <CheckCircle className="w-3.5 h-3.5 text-emerald-500" />;
+    case "vetting_in_progress": return <TrendingUp className="w-3.5 h-3.5 text-blue-500" />;
+    case "payment_received": return <CreditCard className="w-3.5 h-3.5 text-violet-500" />;
+    default: return <AlertCircle className="w-3.5 h-3.5 text-muted-foreground" />;
+  }
+}
+
+function formatRelative(dateStr: string) {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const { user, logout } = useAuth();
+  const { user, token, logout } = useAuth();
   const [location] = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [activity, setActivity] = useState<ActivityItem[]>([]);
+  const [unread, setUnread] = useState(0);
+  const notifRef = useRef<HTMLDivElement>(null);
 
   const visibleItems = navItems.filter(item =>
     !item.roles || item.roles.includes(user?.role ?? "")
   );
+
+  useEffect(() => {
+    if (!token) return;
+    apiFetch<ActivityItem[]>("/dashboard/activity", { token })
+      .then(items => {
+        setActivity(items);
+        setUnread(items.filter(i => {
+          const seenUntil = parseInt(localStorage.getItem("kenyavet_notif_seen") ?? "0", 10);
+          return new Date(i.createdAt).getTime() > seenUntil;
+        }).length);
+      })
+      .catch(() => {});
+  }, [token]);
+
+  function openNotif() {
+    setNotifOpen(true);
+    setUnread(0);
+    localStorage.setItem("kenyavet_notif_seen", String(Date.now()));
+  }
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
+        setNotifOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
@@ -64,7 +126,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 key={item.href}
                 href={item.href}
                 className={cn(
-                  "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors group",
+                  "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors",
                   active
                     ? "bg-sidebar-primary text-sidebar-primary-foreground"
                     : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
@@ -121,9 +183,60 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <Menu className="w-5 h-5" />
           </button>
           <div className="flex-1" />
-          <button className="relative text-muted-foreground hover:text-foreground transition-colors">
-            <Bell className="w-5 h-5" />
-          </button>
+
+          {/* Notifications */}
+          <div className="relative" ref={notifRef}>
+            <button
+              onClick={openNotif}
+              className="relative text-muted-foreground hover:text-foreground transition-colors p-1"
+            >
+              <Bell className="w-5 h-5" />
+              {unread > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                  {unread > 9 ? "9+" : unread}
+                </span>
+              )}
+            </button>
+
+            {notifOpen && (
+              <div className="absolute right-0 mt-2 w-80 bg-white border border-border rounded-xl shadow-lg z-50 overflow-hidden">
+                <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+                  <p className="font-semibold text-sm text-foreground">Notifications</p>
+                  <span className="text-xs text-muted-foreground">{activity.length} updates</span>
+                </div>
+                <div className="max-h-72 overflow-y-auto divide-y divide-border">
+                  {activity.length === 0 ? (
+                    <div className="px-4 py-6 text-center text-sm text-muted-foreground">No notifications yet</div>
+                  ) : (
+                    activity.map(item => (
+                      <div
+                        key={item.id}
+                        className="px-4 py-3 hover:bg-muted/30 transition-colors"
+                      >
+                        <div className="flex items-start gap-2">
+                          <div className="mt-0.5 shrink-0">{activityIcon(item.type)}</div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs text-foreground leading-snug">{item.message}</p>
+                            <p className="text-[10px] text-muted-foreground mt-0.5">{formatRelative(item.createdAt)}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <div className="px-4 py-2.5 border-t border-border">
+                  <Link
+                    href="/vetting-requests"
+                    onClick={() => setNotifOpen(false)}
+                    className="text-xs text-primary hover:underline"
+                  >
+                    View all requests →
+                  </Link>
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="hidden sm:flex items-center gap-2 text-sm text-muted-foreground">
             <span>{user?.neighbourhood || "Nairobi"}</span>
           </div>
