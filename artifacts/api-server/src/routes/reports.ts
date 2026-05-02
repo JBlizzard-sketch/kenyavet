@@ -5,6 +5,44 @@ import { requireAuth, requireRole, type AuthRequest } from "../lib/auth-middlewa
 
 const router: IRouter = Router();
 
+// PUBLIC — used by QR card scan links, no auth required
+router.get("/reports/verify/:reportId", async (req, res): Promise<void> => {
+  const reportId = parseInt(req.params.reportId as string, 10);
+  if (isNaN(reportId)) { res.status(400).json({ message: "Invalid report ID" }); return; }
+
+  const [row] = await db
+    .select({ r: reportsTable, vr: vettingRequestsTable })
+    .from(reportsTable)
+    .innerJoin(vettingRequestsTable, eq(reportsTable.vettingRequestId, vettingRequestsTable.id))
+    .where(eq(reportsTable.id, reportId));
+
+  if (!row) { res.status(404).json({ message: "Report not found" }); return; }
+
+  const { r, vr } = row;
+  const breakdown = r.scoreBreakdown as Record<string, number | null> | null;
+
+  const badges: string[] = [];
+  if (r.identityVerified) badges.push("Identity Verified");
+  if (r.dciCertificateStatus === "verified") badges.push("DCI Cleared");
+  if (breakdown?.references != null && (breakdown.references ?? 0) >= 70) badges.push("References Checked");
+  if (r.addressVerified) badges.push("Address Verified");
+  if (r.socialMediaSummary) badges.push("Social Media Reviewed");
+
+  res.json({
+    reportId: r.id,
+    workerName: r.workerName,
+    workerRole: r.workerRole,
+    workerPhotoUrl: r.workerPhotoUrl,
+    trustScore: r.overallTrustScore,
+    packageName: r.packageName,
+    badges,
+    summary: r.summary,
+    flags: (r.flags as string[] | null) ?? [],
+    verifiedAt: r.completedAt.toISOString(),
+    vetCount: vr.id ? 1 : 0,
+  });
+});
+
 router.get("/reports", requireAuth, async (req: AuthRequest, res): Promise<void> => {
   const rows = await db
     .select({ r: reportsTable, vr: vettingRequestsTable })

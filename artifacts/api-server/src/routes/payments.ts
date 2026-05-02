@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { db, vettingRequestsTable, vettingPackagesTable, vettingStepsTable, activityItemsTable } from "@workspace/db";
+import { db, vettingRequestsTable, vettingPackagesTable, vettingStepsTable, activityItemsTable, usersTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { requireAuth, type AuthRequest } from "../lib/auth-middleware";
 
@@ -27,7 +27,7 @@ router.post("/vetting-requests/:id/pay", requireAuth, async (req: AuthRequest, r
   const mpesaRef = `KV${Date.now().toString().slice(-8)}`;
 
   await db.update(vettingRequestsTable)
-    .set({ status: "in_progress", updatedAt: new Date() })
+    .set({ status: "in_progress", updatedAt: new Date(), mpesaRef })
     .where(eq(vettingRequestsTable.id, id));
 
   await db.update(vettingStepsTable)
@@ -48,6 +48,37 @@ router.post("/vetting-requests/:id/pay", requireAuth, async (req: AuthRequest, r
     phone,
     amount: row.pkg?.priceKsh ?? 0,
     message: `Payment of KES ${row.pkg?.priceKsh?.toLocaleString() ?? "0"} confirmed. Vetting begins within 2 hours.`,
+  });
+});
+
+router.get("/vetting-requests/:id/receipt", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ message: "Invalid ID" }); return; }
+
+  const [row] = await db
+    .select({ vr: vettingRequestsTable, pkg: vettingPackagesTable, emp: usersTable })
+    .from(vettingRequestsTable)
+    .leftJoin(vettingPackagesTable, eq(vettingRequestsTable.packageId, vettingPackagesTable.id))
+    .innerJoin(usersTable, eq(vettingRequestsTable.employerId, usersTable.id))
+    .where(and(eq(vettingRequestsTable.id, id), eq(vettingRequestsTable.employerId, req.userId!)));
+
+  if (!row) { res.status(404).json({ message: "Not found" }); return; }
+  if (row.vr.status === "pending_payment") {
+    res.status(400).json({ message: "Payment not yet completed for this request" });
+    return;
+  }
+
+  res.json({
+    requestId: row.vr.id,
+    workerName: row.vr.workerName,
+    workerRole: row.vr.workerRole,
+    packageName: row.pkg?.name ?? "—",
+    priceKsh: row.pkg?.priceKsh ?? 0,
+    mpesaRef: row.vr.mpesaRef ?? "—",
+    employerName: row.emp.name,
+    employerEmail: row.emp.email,
+    paymentDate: row.vr.updatedAt.toISOString(),
+    status: row.vr.status,
   });
 });
 

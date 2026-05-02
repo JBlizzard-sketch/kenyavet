@@ -19,6 +19,7 @@ export const vettingRequestsTable = pgTable("vetting_requests", {
   reportId: integer("report_id"),
   notes: text("notes"),
   adminNotes: text("admin_notes"),
+  mpesaRef: text("mpesa_ref"),
   completedAt: timestamp("completed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),

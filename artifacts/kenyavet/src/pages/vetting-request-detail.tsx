@@ -398,6 +398,15 @@ export default function VettingRequestDetail() {
               </Link>
             )}
 
+            {req.status !== "pending_payment" && (
+              <Link href={`/receipt/${req.id}`}>
+                <Button className="w-full gap-2" variant="ghost">
+                  <Shield className="w-4 h-4" />
+                  Payment Receipt
+                </Button>
+              </Link>
+            )}
+
             {req.status !== "pending_payment" && req.status !== "completed" && (
               <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm">
                 <div className="flex items-center gap-2 mb-1">

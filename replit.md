@@ -34,7 +34,7 @@ pnpm workspace monorepo with three main artifacts:
 
 - `users` — employers, admin, ops roles
 - `vetting_packages` — Basic (Ksh 2,500), Standard (Ksh 5,000), Premium (Ksh 9,000)
-- `vetting_requests` — worker submissions with status workflow
+- `vetting_requests` — worker submissions with status workflow; `mpesa_ref` stores M-Pesa reference
 - `vetting_steps` — per-request verification steps
 - `reference_contacts` — reference call contacts
 - `workers` — verified worker directory with QR codes
@@ -45,29 +45,34 @@ pnpm workspace monorepo with three main artifacts:
 ## API Routes
 
 All under `/api`:
-- `POST /auth/register`, `POST /auth/login` — JWT auth
+- `POST /auth/register`, `POST /auth/login`, `PATCH /auth/me/update` — JWT auth + profile
 - `GET /packages` — vetting packages
 - `GET/POST /vetting-requests` — submit and list requests
 - `GET/PATCH /vetting-requests/:id` — request detail and update
-- `GET /dashboard/stats`, `GET /dashboard/recent-requests` — dashboard data
+- `POST /vetting-requests/:id/pay` — M-Pesa payment, stores mpesaRef
+- `GET /vetting-requests/:id/receipt` — printable payment receipt (auth)
+- `GET /dashboard/stats`, `GET /dashboard/recent-requests`, `GET /dashboard/activity` — dashboard data
 - `GET /workers`, `GET /workers/verify/:qrCode` — worker directory
-- `GET/POST/PATCH /staff` — employer staff management
-- `GET /reports`, `GET /reports/:id` — completed reports
-- `GET/PATCH /admin/requests`, `GET /admin/stats` — admin panel
+- `GET /reports`, `GET /reports/:id`, `GET /reports/by-request/:requestId` — completed reports
+- `GET /reports/verify/:reportId` — PUBLIC: QR card verification endpoint (no auth)
+- `GET/POST/PATCH /staff`, `POST /staff/from-request/:requestId` — employer staff management
+- `GET/PATCH /admin/requests`, `GET /admin/stats`, `PATCH /admin/reports/:id`, `POST /admin/requests/:id/notify` — admin panel
 
 ## Frontend Pages
 
 - `/` — landing page with hero, packages, testimonials
 - `/login`, `/register` — auth pages
-- `/dashboard` — stats overview + recent requests
-- `/vetting-requests` — list of all requests
+- `/dashboard` — stats overview, recent requests, activity feed, completion rate bar
+- `/vetting-requests` — list of all requests with status filter
 - `/vetting-requests/new` — submit new vetting request
-- `/vetting-requests/:id` — request detail with steps
+- `/vetting-requests/:id` — request detail with steps + receipt link
+- `/receipt/:id` — printable M-Pesa payment receipt (auth)
 - `/workers` — verified worker directory
-- `/staff` — household staff management
-- `/reports` — completed vetting reports
-- `/admin` — admin panel (admin/ops roles only)
-- `/verify` — public QR code verification
+- `/staff` — household staff management, add-from-report, QR card
+- `/reports` — completed vetting reports with QR card button
+- `/admin` — admin panel (admin/ops roles only) with detail drawer
+- `/verify` — PUBLIC: QR scan / report ID lookup, works with ?reportId= and ?qr= params
+- `/profile` — user profile management
 
 ## Demo Accounts
 
