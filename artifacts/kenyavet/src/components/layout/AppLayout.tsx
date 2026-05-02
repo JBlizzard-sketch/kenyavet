@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
@@ -7,7 +7,7 @@ import {
   LayoutDashboard, ClipboardList, Users, FileText,
   UserCog, Settings, LogOut, Menu, X, Shield,
   ChevronRight, Bell, CheckCircle, TrendingUp, CreditCard, AlertCircle,
-  ClipboardCheck, User,
+  ClipboardCheck, User, Search, Loader2,
 } from "lucide-react";
 
 interface NavItem {
@@ -24,6 +24,14 @@ interface ActivityItem {
   workerName: string | null;
   linkId: number | null;
   createdAt: string;
+}
+
+interface SearchResult {
+  type: "worker" | "request" | "report";
+  id: number;
+  title: string;
+  subtitle: string;
+  href: string;
 }
 
 const navItems: NavItem[] = [
@@ -45,6 +53,22 @@ function activityIcon(type: string) {
   }
 }
 
+function resultTypeIcon(type: SearchResult["type"]) {
+  switch (type) {
+    case "worker": return <Users className="w-3.5 h-3.5 text-emerald-500" />;
+    case "request": return <ClipboardList className="w-3.5 h-3.5 text-blue-500" />;
+    case "report": return <FileText className="w-3.5 h-3.5 text-violet-500" />;
+  }
+}
+
+function resultTypeLabel(type: SearchResult["type"]) {
+  switch (type) {
+    case "worker": return "Worker";
+    case "request": return "Request";
+    case "report": return "Report";
+  }
+}
+
 function formatRelative(dateStr: string) {
   const diff = Date.now() - new Date(dateStr).getTime();
   const mins = Math.floor(diff / 60000);
@@ -57,12 +81,20 @@ function formatRelative(dateStr: string) {
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, token, logout } = useAuth();
-  const [location] = useLocation();
+  const [location, navigate] = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [activity, setActivity] = useState<ActivityItem[]>([]);
   const [unread, setUnread] = useState(0);
   const notifRef = useRef<HTMLDivElement>(null);
+
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [selectedIdx, setSelectedIdx] = useState(0);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const visibleItems = navItems.filter(item =>
     !item.roles || item.roles.includes(user?.role ?? "")
@@ -97,8 +129,146 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setSearchOpen(o => !o);
+      }
+      if (e.key === "Escape") setSearchOpen(false);
+    }
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, []);
+
+  useEffect(() => {
+    if (searchOpen) {
+      setTimeout(() => searchInputRef.current?.focus(), 50);
+      setSearchQuery("");
+      setSearchResults([]);
+      setSelectedIdx(0);
+    }
+  }, [searchOpen]);
+
+  const runSearch = useCallback(async (q: string) => {
+    if (q.length < 2) { setSearchResults([]); return; }
+    setSearchLoading(true);
+    try {
+      const data = await apiFetch<{ results: SearchResult[] }>(`/search?q=${encodeURIComponent(q)}`, { token });
+      setSearchResults(data.results);
+      setSelectedIdx(0);
+    } catch {
+      setSearchResults([]);
+    } finally {
+      setSearchLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    if (searchDebounce.current) clearTimeout(searchDebounce.current);
+    searchDebounce.current = setTimeout(() => runSearch(searchQuery), 280);
+    return () => { if (searchDebounce.current) clearTimeout(searchDebounce.current); };
+  }, [searchQuery, runSearch]);
+
+  function handleSearchKey(e: React.KeyboardEvent) {
+    if (e.key === "ArrowDown") { e.preventDefault(); setSelectedIdx(i => Math.min(i + 1, searchResults.length - 1)); }
+    if (e.key === "ArrowUp") { e.preventDefault(); setSelectedIdx(i => Math.max(i - 1, 0)); }
+    if (e.key === "Enter" && searchResults[selectedIdx]) {
+      navigate(searchResults[selectedIdx].href);
+      setSearchOpen(false);
+    }
+  }
+
   return (
     <div className="flex h-screen bg-background overflow-hidden">
+      {/* Search overlay */}
+      {searchOpen && (
+        <div
+          className="fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm flex items-start justify-center pt-[10vh] px-4"
+          onClick={() => setSearchOpen(false)}
+        >
+          <div
+            className="w-full max-w-xl bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3 px-4 py-3.5 border-b border-gray-100">
+              {searchLoading
+                ? <Loader2 className="w-4 h-4 text-muted-foreground animate-spin shrink-0" />
+                : <Search className="w-4 h-4 text-muted-foreground shrink-0" />
+              }
+              <input
+                ref={searchInputRef}
+                className="flex-1 text-sm bg-transparent outline-none text-foreground placeholder:text-muted-foreground"
+                placeholder="Search workers, requests, reports…"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                onKeyDown={handleSearchKey}
+              />
+              <kbd className="hidden sm:inline-flex h-5 items-center gap-0.5 rounded border border-border bg-muted px-1.5 text-[10px] font-medium text-muted-foreground">
+                Esc
+              </kbd>
+            </div>
+
+            {searchResults.length > 0 ? (
+              <div className="max-h-80 overflow-y-auto py-1.5">
+                {(["worker", "request", "report"] as const).map(type => {
+                  const group = searchResults.filter(r => r.type === type);
+                  if (group.length === 0) return null;
+                  return (
+                    <div key={type}>
+                      <div className="px-4 py-1.5 flex items-center gap-1.5">
+                        {resultTypeIcon(type)}
+                        <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                          {resultTypeLabel(type)}s
+                        </span>
+                      </div>
+                      {group.map(result => {
+                        const globalIdx = searchResults.indexOf(result);
+                        return (
+                          <Link
+                            key={`${result.type}-${result.id}`}
+                            href={result.href}
+                            onClick={() => setSearchOpen(false)}
+                            className={cn(
+                              "flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors",
+                              globalIdx === selectedIdx ? "bg-primary/5" : "hover:bg-muted/40"
+                            )}
+                            onMouseEnter={() => setSelectedIdx(globalIdx)}
+                          >
+                            <div className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center shrink-0">
+                              {resultTypeIcon(result.type)}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-foreground truncate">{result.title}</p>
+                              <p className="text-xs text-muted-foreground truncate">{result.subtitle}</p>
+                            </div>
+                            <ChevronRight className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : searchQuery.length >= 2 && !searchLoading ? (
+              <div className="py-8 text-center text-sm text-muted-foreground">
+                No results for "<span className="font-medium text-foreground">{searchQuery}</span>"
+              </div>
+            ) : searchQuery.length < 2 ? (
+              <div className="py-6 px-4 text-center text-xs text-muted-foreground">
+                Type at least 2 characters to search across workers, requests &amp; reports
+              </div>
+            ) : null}
+
+            <div className="border-t border-gray-100 px-4 py-2 flex items-center gap-4 text-[10px] text-muted-foreground">
+              <span className="flex items-center gap-1"><kbd className="rounded border border-border bg-muted px-1">↑↓</kbd> navigate</span>
+              <span className="flex items-center gap-1"><kbd className="rounded border border-border bg-muted px-1">↵</kbd> open</span>
+              <span className="flex items-center gap-1"><kbd className="rounded border border-border bg-muted px-1">Esc</kbd> close</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Sidebar */}
       <aside className={cn(
         "fixed inset-y-0 left-0 z-50 w-64 bg-sidebar flex flex-col transition-transform duration-200 ease-in-out",
@@ -185,13 +355,26 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       {/* Main content */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Top bar */}
-        <header className="h-14 flex items-center gap-4 px-4 lg:px-6 border-b bg-background shrink-0">
+        <header className="h-14 flex items-center gap-3 px-4 lg:px-6 border-b bg-background shrink-0">
           <button
             className="lg:hidden text-muted-foreground hover:text-foreground"
             onClick={() => setSidebarOpen(true)}
           >
             <Menu className="w-5 h-5" />
           </button>
+
+          {/* Search trigger */}
+          <button
+            onClick={() => setSearchOpen(true)}
+            className="flex items-center gap-2 px-3 h-8 rounded-lg border border-border bg-muted/40 text-muted-foreground text-sm hover:bg-muted hover:text-foreground transition-colors flex-1 max-w-xs"
+          >
+            <Search className="w-3.5 h-3.5 shrink-0" />
+            <span className="text-xs hidden sm:inline">Search…</span>
+            <kbd className="ml-auto hidden sm:inline-flex h-4 items-center gap-0.5 rounded border border-border bg-background px-1 text-[10px] font-medium">
+              ⌘K
+            </kbd>
+          </button>
+
           <div className="flex-1" />
 
           {/* Notifications */}

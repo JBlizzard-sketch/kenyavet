@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, vettingRequestsTable, vettingPackagesTable, usersTable, reportsTable, vettingStepsTable, activityItemsTable, staffRecordsTable, referenceContactsTable, workersTable } from "@workspace/db";
-import { eq, desc, and, count } from "drizzle-orm";
+import { eq, desc, and, count, isNotNull, sql, avg } from "drizzle-orm";
 import { requireAuth, requireRole, type AuthRequest } from "../lib/auth-middleware";
 import { sendReportReadyEmail } from "../lib/email";
 
@@ -582,6 +582,97 @@ router.get("/admin/employers", requireAuth, requireRole("admin", "ops"), async (
         lastRequestAt: lastRequest ? lastRequest.vr.createdAt.toISOString() : null,
       };
     }),
+  });
+});
+
+router.get("/ops/analytics", requireAuth, requireRole("admin", "ops"), async (_req: AuthRequest, res): Promise<void> => {
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const weekStart = new Date(todayStart.getTime() - 6 * 24 * 60 * 60 * 1000);
+
+  const [allRequests, completedRequests, stepRows] = await Promise.all([
+    db.select({ vr: vettingRequestsTable, pkg: vettingPackagesTable })
+      .from(vettingRequestsTable)
+      .leftJoin(vettingPackagesTable, eq(vettingRequestsTable.packageId, vettingPackagesTable.id)),
+
+    db.select({ vr: vettingRequestsTable, pkg: vettingPackagesTable })
+      .from(vettingRequestsTable)
+      .leftJoin(vettingPackagesTable, eq(vettingRequestsTable.packageId, vettingPackagesTable.id))
+      .where(and(eq(vettingRequestsTable.status, "completed"), isNotNull(vettingRequestsTable.completedAt))),
+
+    db.select().from(vettingStepsTable),
+  ]);
+
+  const total = allRequests.length;
+  const pending = allRequests.filter(r => r.vr.status === "pending_payment").length;
+  const inProgress = allRequests.filter(r => r.vr.status === "in_progress").length;
+  const completed = allRequests.filter(r => r.vr.status === "completed").length;
+  const completedToday = allRequests.filter(r =>
+    r.vr.status === "completed" && r.vr.completedAt && new Date(r.vr.completedAt) >= todayStart
+  ).length;
+  const completedThisWeek = allRequests.filter(r =>
+    r.vr.status === "completed" && r.vr.completedAt && new Date(r.vr.completedAt) >= weekStart
+  ).length;
+
+  let avgCompletionHours: number | null = null;
+  if (completedRequests.length > 0) {
+    const totalMs = completedRequests.reduce((sum, r) => {
+      if (!r.vr.completedAt) return sum;
+      return sum + (new Date(r.vr.completedAt).getTime() - new Date(r.vr.createdAt).getTime());
+    }, 0);
+    avgCompletionHours = Math.round((totalMs / completedRequests.length) / (1000 * 60 * 60));
+  }
+
+  const packageBreakdown = ["basic", "standard", "premium"].map(slug => {
+    const rows = allRequests.filter(r => r.pkg?.slug === slug);
+    const done = rows.filter(r => r.vr.status === "completed");
+    const slaOk = done.filter(r => {
+      if (!r.vr.completedAt || !r.pkg) return false;
+      const elapsed = (new Date(r.vr.completedAt).getTime() - new Date(r.vr.createdAt).getTime()) / (1000 * 60 * 60);
+      return elapsed <= (r.pkg.turnaroundHours ?? 48);
+    }).length;
+    const avgMs = done.length > 0
+      ? done.reduce((s, r) => r.vr.completedAt ? s + (new Date(r.vr.completedAt).getTime() - new Date(r.vr.createdAt).getTime()) : s, 0) / done.length
+      : null;
+    return {
+      slug,
+      name: rows[0]?.pkg?.name ?? slug,
+      total: rows.length,
+      completed: done.length,
+      slaAdherence: done.length > 0 ? Math.round((slaOk / done.length) * 100) : null,
+      avgHours: avgMs != null ? Math.round(avgMs / (1000 * 60 * 60)) : null,
+    };
+  });
+
+  const slaCompliant = completedRequests.filter(r => {
+    if (!r.vr.completedAt || !r.pkg) return false;
+    const elapsed = (new Date(r.vr.completedAt).getTime() - new Date(r.vr.createdAt).getTime()) / (1000 * 60 * 60);
+    return elapsed <= (r.pkg.turnaroundHours ?? 48);
+  }).length;
+  const slaAdherence = completedRequests.length > 0
+    ? Math.round((slaCompliant / completedRequests.length) * 100)
+    : null;
+
+  const stepBreakdown = stepRows.reduce<Record<string, { total: number; completed: number; inProgress: number; pending: number; failed: number }>>((acc, s) => {
+    if (!acc[s.stepName]) acc[s.stepName] = { total: 0, completed: 0, inProgress: 0, pending: 0, failed: 0 };
+    acc[s.stepName].total++;
+    if (s.status === "completed") acc[s.stepName].completed++;
+    else if (s.status === "in_progress") acc[s.stepName].inProgress++;
+    else if (s.status === "pending") acc[s.stepName].pending++;
+    else if (s.status === "failed") acc[s.stepName].failed++;
+    return acc;
+  }, {});
+
+  res.json({
+    queue: { total, pending, inProgress, completed, completedToday, completedThisWeek },
+    avgCompletionHours,
+    slaAdherence,
+    packageBreakdown,
+    stepBreakdown: Object.entries(stepBreakdown).map(([name, v]) => ({
+      name,
+      ...v,
+      completionRate: v.total > 0 ? Math.round((v.completed / v.total) * 100) : 0,
+    })),
   });
 });
 

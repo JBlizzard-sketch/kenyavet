@@ -7,7 +7,7 @@ import { formatDate, formatKsh, getStatusColor, getStatusLabel, getTrustScoreBg 
 import {
   CheckCircle, Clock, XCircle, AlertCircle, X, ChevronRight,
   User, MapPin, Phone, Package, Loader2, RefreshCw, Search,
-  ClipboardCheck, Zap, FileText, Flag,
+  ClipboardCheck, Zap, FileText, Flag, BarChart2, TrendingUp, Target, Award,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -72,6 +72,36 @@ interface AdminRequest {
   employerNeighbourhood: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+interface OpsAnalytics {
+  queue: {
+    total: number;
+    pending: number;
+    inProgress: number;
+    completed: number;
+    completedToday: number;
+    completedThisWeek: number;
+  };
+  avgCompletionHours: number | null;
+  slaAdherence: number | null;
+  packageBreakdown: Array<{
+    slug: string;
+    name: string;
+    total: number;
+    completed: number;
+    slaAdherence: number | null;
+    avgHours: number | null;
+  }>;
+  stepBreakdown: Array<{
+    name: string;
+    total: number;
+    completed: number;
+    inProgress: number;
+    pending: number;
+    failed: number;
+    completionRate: number;
+  }>;
 }
 
 function getSlaInfo(req: AdminRequest): { label: string; urgent: boolean; overdue: boolean } {
@@ -745,6 +775,159 @@ function OpsDrawer({
   );
 }
 
+function OpsAnalyticsPanel({ token }: { token: string | null }) {
+  const [data, setData] = useState<OpsAnalytics | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    apiFetch<OpsAnalytics>("/ops/analytics", { token })
+      .then(d => setData(d))
+      .catch(() => setData(null))
+      .finally(() => setLoading(false));
+  }, [token]);
+
+  if (loading) return (
+    <div className="py-20 text-center text-muted-foreground text-sm flex items-center justify-center gap-2">
+      <Loader2 className="w-4 h-4 animate-spin" /> Loading analytics…
+    </div>
+  );
+  if (!data) return (
+    <div className="py-20 text-center text-muted-foreground text-sm">Failed to load analytics.</div>
+  );
+
+  const slaColor = (v: number | null) =>
+    v == null ? "text-muted-foreground" : v >= 90 ? "text-emerald-600" : v >= 70 ? "text-amber-600" : "text-red-600";
+  const slaBarColor = (v: number | null) =>
+    v == null ? "bg-gray-200" : v >= 90 ? "bg-emerald-500" : v >= 70 ? "bg-amber-500" : "bg-red-500";
+
+  return (
+    <div className="space-y-8">
+      {/* KPI cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {[
+          { icon: ClipboardCheck, label: "In Queue", value: data.queue.inProgress, color: "bg-blue-50 text-blue-600", sub: "active" },
+          { icon: CheckCircle, label: "Done Today", value: data.queue.completedToday, color: "bg-emerald-50 text-emerald-600", sub: "completed" },
+          { icon: TrendingUp, label: "This Week", value: data.queue.completedThisWeek, color: "bg-violet-50 text-violet-600", sub: "completed" },
+          { icon: Award, label: "Total Vetted", value: data.queue.completed, color: "bg-amber-50 text-amber-600", sub: "all time" },
+        ].map(({ icon: Icon, label, value, color, sub }) => (
+          <div key={label} className="bg-card rounded-xl border border-card-border p-4 flex flex-col gap-2">
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${color}`}>
+              <Icon className="w-4 h-4" />
+            </div>
+            <div className="text-2xl font-black text-foreground">{value}</div>
+            <div className="text-xs text-muted-foreground leading-tight">{label} <span className="text-[10px]">({sub})</span></div>
+          </div>
+        ))}
+      </div>
+
+      {/* SLA + Avg time */}
+      <div className="grid md:grid-cols-2 gap-4">
+        <div className="bg-card rounded-xl border border-card-border p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <Target className="w-4 h-4 text-primary" />
+            <p className="font-semibold text-sm text-foreground">Overall SLA Adherence</p>
+          </div>
+          {data.slaAdherence != null ? (
+            <>
+              <div className={`text-4xl font-black mb-2 ${slaColor(data.slaAdherence)}`}>{data.slaAdherence}%</div>
+              <div className="h-2.5 bg-muted rounded-full overflow-hidden">
+                <div className={`h-full rounded-full transition-all ${slaBarColor(data.slaAdherence)}`} style={{ width: `${data.slaAdherence}%` }} />
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">Percentage of completed checks delivered within turnaround</p>
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground mt-2">No completed checks yet — SLA data will appear here once reports are published.</p>
+          )}
+        </div>
+
+        <div className="bg-card rounded-xl border border-card-border p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <Clock className="w-4 h-4 text-primary" />
+            <p className="font-semibold text-sm text-foreground">Avg Completion Time</p>
+          </div>
+          {data.avgCompletionHours != null ? (
+            <>
+              <div className="text-4xl font-black text-foreground mb-1">{data.avgCompletionHours}h</div>
+              <p className="text-xs text-muted-foreground">Average hours from request creation to report published</p>
+              <div className="mt-4 flex gap-3 text-xs">
+                <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-full">Target: ≤24h Standard</span>
+                <span className="px-2.5 py-1 bg-blue-50 text-blue-700 rounded-full">≤48h Basic</span>
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground mt-2">No completed checks yet.</p>
+          )}
+        </div>
+      </div>
+
+      {/* Package breakdown */}
+      <div className="bg-card rounded-xl border border-card-border p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <BarChart2 className="w-4 h-4 text-primary" />
+          <p className="font-semibold text-sm text-foreground">Breakdown by Package</p>
+        </div>
+        <div className="space-y-4">
+          {data.packageBreakdown.map(pkg => (
+            <div key={pkg.slug}>
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-foreground">{pkg.name}</span>
+                  <span className="text-xs text-muted-foreground">{pkg.total} total · {pkg.completed} done</span>
+                </div>
+                <div className="flex items-center gap-3 text-xs">
+                  {pkg.avgHours != null && <span className="text-muted-foreground">{pkg.avgHours}h avg</span>}
+                  {pkg.slaAdherence != null && (
+                    <span className={`font-semibold ${slaColor(pkg.slaAdherence)}`}>{pkg.slaAdherence}% SLA</span>
+                  )}
+                </div>
+              </div>
+              <div className="h-2 bg-muted rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-primary/70 rounded-full"
+                  style={{ width: pkg.total > 0 ? `${(pkg.completed / pkg.total) * 100}%` : "0%" }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Step bottlenecks */}
+      {data.stepBreakdown.length > 0 && (
+        <div className="bg-card rounded-xl border border-card-border p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <Zap className="w-4 h-4 text-primary" />
+            <p className="font-semibold text-sm text-foreground">Step Completion Rates</p>
+            <span className="text-xs text-muted-foreground ml-1">— lower rates = bottlenecks</span>
+          </div>
+          <div className="space-y-3">
+            {data.stepBreakdown
+              .sort((a, b) => a.completionRate - b.completionRate)
+              .map(step => (
+                <div key={step.name} className="flex items-center gap-3">
+                  <span className="text-xs text-muted-foreground w-36 shrink-0 truncate" title={step.name}>{step.name}</span>
+                  <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${step.completionRate >= 80 ? "bg-emerald-500" : step.completionRate >= 50 ? "bg-amber-500" : "bg-red-400"}`}
+                      style={{ width: `${step.completionRate}%` }}
+                    />
+                  </div>
+                  <div className="text-xs text-right w-20 shrink-0 text-muted-foreground">
+                    {step.completionRate}% · {step.completed}/{step.total}
+                  </div>
+                  {step.failed > 0 && (
+                    <span className="text-[10px] px-1.5 py-0.5 bg-red-50 text-red-600 rounded-full shrink-0">{step.failed} failed</span>
+                  )}
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Ops() {
   const { token } = useAuth();
   const [requests, setRequests] = useState<AdminRequest[]>([]);
@@ -752,6 +935,7 @@ export default function Ops() {
   const [statusFilter, setStatusFilter] = useState<string>("in_progress");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<number | null>(null);
+  const [activeView, setActiveView] = useState<"queue" | "analytics">("queue");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -768,7 +952,7 @@ export default function Ops() {
     }
   }, [token, statusFilter]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { if (activeView === "queue") load(); }, [load, activeView]);
 
   const filtered = requests.filter(r =>
     r.workerName.toLowerCase().includes(search.toLowerCase()) ||
@@ -801,115 +985,148 @@ export default function Ops() {
             </h1>
             <p className="text-muted-foreground text-sm mt-0.5">Process vetting requests step by step</p>
           </div>
-          <Button variant="outline" size="sm" className="gap-2" onClick={load} disabled={loading}>
-            <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
-            Refresh
-          </Button>
-        </div>
-
-        {/* Status tabs */}
-        <div className="flex gap-2 mb-5 flex-wrap">
-          {statusTabs.map(tab => (
-            <button
-              key={tab.key}
-              onClick={() => setStatusFilter(tab.key)}
-              className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
-                statusFilter === tab.key
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted text-muted-foreground hover:bg-muted/80"
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Search */}
-        <div className="relative mb-5">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            className="pl-9"
-            placeholder="Search by worker or employer name…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
-        </div>
-
-        {/* Requests list */}
-        {loading ? (
-          <div className="py-16 text-center text-muted-foreground text-sm">Loading requests…</div>
-        ) : filtered.length === 0 ? (
-          <div className="py-16 text-center">
-            <ClipboardCheck className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
-            <p className="text-muted-foreground text-sm">No {statusFilter === "in_progress" ? "in-progress" : ""} requests found.</p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {filtered.map(req => (
-              <div
-                key={req.id}
-                className="bg-card rounded-xl border border-card-border p-4 flex items-center gap-4 hover:border-primary/30 hover:shadow-sm transition-all cursor-pointer group"
-                onClick={() => setSelected(req.id)}
+          <div className="flex items-center gap-2">
+            {/* View toggle */}
+            <div className="flex items-center bg-muted rounded-lg p-1 gap-0.5">
+              <button
+                onClick={() => setActiveView("queue")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                  activeView === "queue"
+                    ? "bg-white text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
               >
-                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                  <span className="text-primary text-sm font-bold">{req.workerName.charAt(0)}</span>
-                </div>
-
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="font-semibold text-foreground text-sm">{req.workerName}</p>
-                    <span className="text-xs text-muted-foreground">{req.workerRole}</span>
-                    {(() => {
-                      const sla = getSlaInfo(req);
-                      if (!sla.label) return null;
-                      return (
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${
-                          sla.overdue
-                            ? "bg-red-100 text-red-700"
-                            : sla.urgent
-                            ? "bg-amber-100 text-amber-700"
-                            : "bg-blue-50 text-blue-600"
-                        }`}>
-                          {sla.label}
-                        </span>
-                      );
-                    })()}
-                  </div>
-                  <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground flex-wrap">
-                    <span className="flex items-center gap-1">
-                      <User className="w-3 h-3" /> {req.employerName}
-                    </span>
-                    {req.employerNeighbourhood && (
-                      <span className="flex items-center gap-1">
-                        <MapPin className="w-3 h-3" /> {req.employerNeighbourhood}
-                      </span>
-                    )}
-                    <span className="flex items-center gap-1">
-                      <Package className="w-3 h-3" /> {req.packageName}
-                    </span>
-                    <span>{formatDate(req.createdAt)}</span>
-                  </div>
-                  {req.adminNotes && (
-                    <p className="text-xs text-muted-foreground mt-1 truncate">
-                      Note: {req.adminNotes}
-                    </p>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-3 shrink-0">
-                  {req.trustScore != null && (
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${getTrustScoreBg(req.trustScore)}`}>
-                      {req.trustScore}/100
-                    </span>
-                  )}
-                  <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${getStatusColor(req.status)}`}>
-                    {getStatusLabel(req.status)}
-                  </span>
-                  <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
-                </div>
-              </div>
-            ))}
+                <ClipboardCheck className="w-3.5 h-3.5" /> Queue
+              </button>
+              <button
+                onClick={() => setActiveView("analytics")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                  activeView === "analytics"
+                    ? "bg-white text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <BarChart2 className="w-3.5 h-3.5" /> Analytics
+              </button>
+            </div>
+            {activeView === "queue" && (
+              <Button variant="outline" size="sm" className="gap-2" onClick={load} disabled={loading}>
+                <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+                Refresh
+              </Button>
+            )}
           </div>
+        </div>
+
+        {activeView === "analytics" ? (
+          <OpsAnalyticsPanel token={token} />
+        ) : (
+          <>
+            {/* Status tabs */}
+            <div className="flex gap-2 mb-5 flex-wrap">
+              {statusTabs.map(tab => (
+                <button
+                  key={tab.key}
+                  onClick={() => setStatusFilter(tab.key)}
+                  className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                    statusFilter === tab.key
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted text-muted-foreground hover:bg-muted/80"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Search */}
+            <div className="relative mb-5">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                className="pl-9"
+                placeholder="Search by worker or employer name…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+            </div>
+
+            {/* Requests list */}
+            {loading ? (
+              <div className="py-16 text-center text-muted-foreground text-sm">Loading requests…</div>
+            ) : filtered.length === 0 ? (
+              <div className="py-16 text-center">
+                <ClipboardCheck className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
+                <p className="text-muted-foreground text-sm">No {statusFilter === "in_progress" ? "in-progress" : ""} requests found.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {filtered.map(req => (
+                  <div
+                    key={req.id}
+                    className="bg-card rounded-xl border border-card-border p-4 flex items-center gap-4 hover:border-primary/30 hover:shadow-sm transition-all cursor-pointer group"
+                    onClick={() => setSelected(req.id)}
+                  >
+                    <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                      <span className="text-primary text-sm font-bold">{req.workerName.charAt(0)}</span>
+                    </div>
+
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-semibold text-foreground text-sm">{req.workerName}</p>
+                        <span className="text-xs text-muted-foreground">{req.workerRole}</span>
+                        {(() => {
+                          const sla = getSlaInfo(req);
+                          if (!sla.label) return null;
+                          return (
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${
+                              sla.overdue
+                                ? "bg-red-100 text-red-700"
+                                : sla.urgent
+                                ? "bg-amber-100 text-amber-700"
+                                : "bg-blue-50 text-blue-600"
+                            }`}>
+                              {sla.label}
+                            </span>
+                          );
+                        })()}
+                      </div>
+                      <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground flex-wrap">
+                        <span className="flex items-center gap-1">
+                          <User className="w-3 h-3" /> {req.employerName}
+                        </span>
+                        {req.employerNeighbourhood && (
+                          <span className="flex items-center gap-1">
+                            <MapPin className="w-3 h-3" /> {req.employerNeighbourhood}
+                          </span>
+                        )}
+                        <span className="flex items-center gap-1">
+                          <Package className="w-3 h-3" /> {req.packageName}
+                        </span>
+                        <span>{formatDate(req.createdAt)}</span>
+                      </div>
+                      {req.adminNotes && (
+                        <p className="text-xs text-muted-foreground mt-1 truncate">
+                          Note: {req.adminNotes}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-3 shrink-0">
+                      {req.trustScore != null && (
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${getTrustScoreBg(req.trustScore)}`}>
+                          {req.trustScore}/100
+                        </span>
+                      )}
+                      <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${getStatusColor(req.status)}`}>
+                        {getStatusLabel(req.status)}
+                      </span>
+                      <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
     </AppLayout>
