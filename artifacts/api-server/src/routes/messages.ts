@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, messagesTable, vettingRequestsTable, usersTable } from "@workspace/db";
-import { eq, and, asc } from "drizzle-orm";
+import { eq, and, asc, ne, sql, inArray } from "drizzle-orm";
 import { requireAuth, type AuthRequest } from "../lib/auth-middleware";
 
 const router: IRouter = Router();
@@ -10,7 +10,6 @@ router.get("/vetting-requests/:id/messages", requireAuth, async (req: AuthReques
   const requestId = parseInt(req.params.id as string, 10);
   if (isNaN(requestId)) { res.status(400).json({ message: "Invalid request ID" }); return; }
 
-  // Verify access
   if (req.userRole === "employer") {
     const [vr] = await db.select({ id: vettingRequestsTable.id })
       .from(vettingRequestsTable)
@@ -35,7 +34,6 @@ router.post("/vetting-requests/:id/messages", requireAuth, async (req: AuthReque
     res.status(400).json({ message: "Message body is required" }); return;
   }
 
-  // Verify access
   if (req.userRole === "employer") {
     const [vr] = await db.select({ id: vettingRequestsTable.id })
       .from(vettingRequestsTable)
@@ -43,7 +41,6 @@ router.post("/vetting-requests/:id/messages", requireAuth, async (req: AuthReque
     if (!vr) { res.status(404).json({ message: "Request not found" }); return; }
   }
 
-  // Look up sender name from DB
   const [userRow] = await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.id, req.userId!));
   const senderName = userRow?.name ?? (req.userRole === "ops" ? "KenyaVet Ops" : req.userRole === "admin" ? "KenyaVet Admin" : "Homeowner");
 
@@ -53,9 +50,75 @@ router.post("/vetting-requests/:id/messages", requireAuth, async (req: AuthReque
     role: req.userRole!,
     senderName,
     body: body.trim(),
+    isRead: false, // recipient hasn't read it yet
   }).returning();
 
   res.status(201).json(msg);
+});
+
+// PATCH /vetting-requests/:id/messages/read — mark all unread messages (from other party) as read
+router.patch("/vetting-requests/:id/messages/read", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  const requestId = parseInt(req.params.id as string, 10);
+  if (isNaN(requestId)) { res.status(400).json({ message: "Invalid request ID" }); return; }
+
+  if (req.userRole === "employer") {
+    const [vr] = await db.select({ id: vettingRequestsTable.id })
+      .from(vettingRequestsTable)
+      .where(and(eq(vettingRequestsTable.id, requestId), eq(vettingRequestsTable.employerId, req.userId!)));
+    if (!vr) { res.status(404).json({ message: "Request not found" }); return; }
+  }
+
+  // Mark messages from the OTHER party as read
+  // employer opens → mark ops/admin messages as read
+  // ops/admin opens → mark employer messages as read
+  const recipientRole = req.userRole === "employer" ? ["ops", "admin"] : ["employer"];
+
+  await db.update(messagesTable)
+    .set({ isRead: true })
+    .where(
+      and(
+        eq(messagesTable.requestId, requestId),
+        eq(messagesTable.isRead, false),
+        inArray(messagesTable.role, recipientRole)
+      )
+    );
+
+  res.json({ ok: true });
+});
+
+// GET /messages/unread-count — total unread messages across all the caller's requests
+router.get("/messages/unread-count", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  let count = 0;
+
+  if (req.userRole === "employer") {
+    // Employer: count unread ops/admin messages on their requests
+    const rows = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(messagesTable)
+      .innerJoin(vettingRequestsTable, eq(messagesTable.requestId, vettingRequestsTable.id))
+      .where(
+        and(
+          eq(vettingRequestsTable.employerId, req.userId!),
+          eq(messagesTable.isRead, false),
+          ne(messagesTable.role, "employer")
+        )
+      );
+    count = rows[0]?.count ?? 0;
+  } else {
+    // Ops/Admin: count unread employer messages across all requests
+    const rows = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(messagesTable)
+      .where(
+        and(
+          eq(messagesTable.isRead, false),
+          eq(messagesTable.role, "employer")
+        )
+      );
+    count = rows[0]?.count ?? 0;
+  }
+
+  res.json({ count });
 });
 
 export default router;

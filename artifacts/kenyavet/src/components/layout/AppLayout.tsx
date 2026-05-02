@@ -90,6 +90,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [notifOpen, setNotifOpen] = useState(false);
   const [activity, setActivity] = useState<ActivityItem[]>([]);
   const [unread, setUnread] = useState(0);
+  const [msgUnread, setMsgUnread] = useState(0);
   const notifRef = useRef<HTMLDivElement>(null);
 
   const [searchOpen, setSearchOpen] = useState(false);
@@ -115,6 +116,18 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         }).length);
       })
       .catch(() => {});
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+    function fetchMsgUnread() {
+      apiFetch<{ count: number }>("/messages/unread-count", { token })
+        .then(d => setMsgUnread(d.count))
+        .catch(() => {});
+    }
+    fetchMsgUnread();
+    const interval = setInterval(fetchMsgUnread, 60_000);
+    return () => clearInterval(interval);
   }, [token]);
 
   function openNotif() {
@@ -311,7 +324,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               >
                 <item.icon className="w-4 h-4 shrink-0" />
                 {item.label}
-                {active && <ChevronRight className="w-3 h-3 ml-auto opacity-60" />}
+                {msgUnread > 0 && item.href === "/vetting-requests" && (
+                  <span className="ml-auto flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold leading-none">
+                    {msgUnread > 99 ? "99+" : msgUnread}
+                  </span>
+                )}
+                {active && msgUnread === 0 && item.href === "/vetting-requests" && (
+                  <ChevronRight className="w-3 h-3 ml-auto opacity-60" />
+                )}
+                {active && item.href !== "/vetting-requests" && (
+                  <ChevronRight className="w-3 h-3 ml-auto opacity-60" />
+                )}
               </Link>
             );
           })}

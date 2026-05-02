@@ -261,6 +261,10 @@ export default function VettingRequestDetail() {
     try {
       const data = await apiFetch<{ messages: Message[] }>(`/vetting-requests/${id}/messages`, { token });
       setMessages(data.messages);
+      // Mark all unread messages from the other party as read
+      if (data.messages.some(m => !m.isRead && m.userId !== user?.id)) {
+        apiFetch(`/vetting-requests/${id}/messages/read`, { method: "PATCH", token, body: {} }).catch(() => {});
+      }
     } catch { /* silently ignore */ }
   }
 
