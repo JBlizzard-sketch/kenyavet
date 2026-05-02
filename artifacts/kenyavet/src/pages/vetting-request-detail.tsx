@@ -5,7 +5,7 @@ import { useAuth } from "@/lib/auth";
 import { apiFetch, API_BASE } from "@/lib/api";
 import { formatDate, formatKsh, getStatusColor, getStatusLabel, getTrustScoreBg, getTrustScoreLabel } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
-import { ArrowLeft, CheckCircle, Clock, XCircle, AlertCircle, FileText, Shield, Smartphone, X, Loader2, Phone, UserCheck, Trash2, MessageSquare, Send, Paperclip, Upload, Download, File } from "lucide-react";
+import { ArrowLeft, CheckCircle, Clock, XCircle, AlertCircle, FileText, Shield, Smartphone, X, Loader2, Phone, UserCheck, Trash2, MessageSquare, Send, Paperclip, Upload, Download, File, History, Award, CreditCard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface Message {
@@ -29,6 +29,13 @@ interface DocRecord {
   objectPath: string;
   label: string | null;
   createdAt: string;
+}
+
+interface TimelineEvent {
+  type: string;
+  title: string;
+  detail: string | null;
+  at: string;
 }
 
 interface VettingStep {
@@ -274,6 +281,8 @@ export default function VettingRequestDetail() {
   const [deletingDocId, setDeletingDocId] = useState<number | null>(null);
   const docInputRef = useRef<HTMLInputElement>(null);
 
+  const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
+
   async function loadMessages() {
     if (!id) return;
     try {
@@ -310,6 +319,14 @@ export default function VettingRequestDetail() {
     try {
       const data = await apiFetch<{ documents: DocRecord[] }>(`/vetting-requests/${id}/documents`, { token });
       setDocuments(data.documents);
+    } catch { /* silently ignore */ }
+  }
+
+  async function loadTimeline() {
+    if (!id) return;
+    try {
+      const data = await apiFetch<{ events: TimelineEvent[] }>(`/vetting-requests/${id}/timeline`, { token });
+      setTimeline(data.events);
     } catch { /* silently ignore */ }
   }
 
@@ -375,7 +392,7 @@ export default function VettingRequestDetail() {
     }
   }
 
-  useEffect(() => { load(); loadMessages(); loadDocuments(); }, [id, token]);
+  useEffect(() => { load(); loadMessages(); loadDocuments(); loadTimeline(); }, [id, token]);
 
   function handlePaymentSuccess() {
     setShowPayment(false);
@@ -782,6 +799,68 @@ export default function VettingRequestDetail() {
                 </div>
               </div>
             </div>
+
+            {timeline.length > 0 && (
+              <div className="bg-card rounded-xl border border-card-border p-5">
+                <h3 className="font-semibold text-foreground mb-4 text-sm flex items-center gap-2">
+                  <History className="w-4 h-4 text-primary" />
+                  Activity Timeline
+                </h3>
+                <div className="relative">
+                  <div className="absolute left-[11px] top-0 bottom-0 w-px bg-border" />
+                  <div className="space-y-4">
+                    {timeline.map((ev, i) => {
+                      const iconMap: Record<string, React.ElementType> = {
+                        submitted: FileText,
+                        payment_confirmed: CreditCard,
+                        step_completed: CheckCircle,
+                        document_uploaded: Paperclip,
+                        message: MessageSquare,
+                        report_published: Award,
+                        cancelled: XCircle,
+                      };
+                      const colorMap: Record<string, string> = {
+                        submitted: "bg-blue-100 text-blue-600",
+                        payment_confirmed: "bg-emerald-100 text-emerald-600",
+                        step_completed: "bg-teal-100 text-teal-600",
+                        document_uploaded: "bg-violet-100 text-violet-600",
+                        message: "bg-sky-100 text-sky-600",
+                        report_published: "bg-amber-100 text-amber-600",
+                        cancelled: "bg-red-100 text-red-500",
+                      };
+                      const Icon = iconMap[ev.type] ?? Clock;
+                      const color = colorMap[ev.type] ?? "bg-muted text-muted-foreground";
+                      const relTime = (() => {
+                        const diff = Date.now() - new Date(ev.at).getTime();
+                        const mins = Math.floor(diff / 60000);
+                        if (mins < 60) return `${mins}m ago`;
+                        const hrs = Math.floor(mins / 60);
+                        if (hrs < 24) return `${hrs}h ago`;
+                        const days = Math.floor(hrs / 24);
+                        if (days < 30) return `${days}d ago`;
+                        return new Date(ev.at).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+                      })();
+                      return (
+                        <div key={i} className="flex gap-3 relative">
+                          <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 z-10 ${color}`}>
+                            <Icon className="w-3 h-3" />
+                          </div>
+                          <div className="flex-1 min-w-0 pb-1">
+                            <div className="flex items-start justify-between gap-2">
+                              <p className="text-xs font-medium text-foreground leading-tight">{ev.title}</p>
+                              <span className="text-[10px] text-muted-foreground shrink-0 mt-0.5">{relTime}</span>
+                            </div>
+                            {ev.detail && (
+                              <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug line-clamp-2">{ev.detail}</p>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {req.status === "completed" && req.reportId && (
               <Link href={`/reports/${req.reportId}`}>

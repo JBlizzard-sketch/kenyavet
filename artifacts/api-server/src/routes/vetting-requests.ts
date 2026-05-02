@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import { db, vettingRequestsTable, vettingPackagesTable, vettingStepsTable, activityItemsTable, referenceContactsTable } from "@workspace/db";
-import { eq, desc, and, count } from "drizzle-orm";
+import { db, vettingRequestsTable, vettingPackagesTable, vettingStepsTable, activityItemsTable, referenceContactsTable, documentsTable, messagesTable, reportsTable } from "@workspace/db";
+import { eq, desc, and, count, asc } from "drizzle-orm";
 import { requireAuth, type AuthRequest } from "../lib/auth-middleware";
 import {
   CreateVettingRequestBody,
@@ -212,5 +212,80 @@ function formatRequest(vr: typeof vettingRequestsTable.$inferSelect, packageName
     updatedAt: vr.updatedAt.toISOString(),
   };
 }
+
+router.get("/vetting-requests/:id/timeline", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ message: "Invalid ID" }); return; }
+
+  const [vr] = await db.select().from(vettingRequestsTable)
+    .where(and(eq(vettingRequestsTable.id, id), eq(vettingRequestsTable.employerId, req.userId!)));
+  if (!vr) { res.status(404).json({ message: "Not found" }); return; }
+
+  const [steps, docs, msgs, reports] = await Promise.all([
+    db.select().from(vettingStepsTable).where(eq(vettingStepsTable.vettingRequestId, id)).orderBy(asc(vettingStepsTable.createdAt)),
+    db.select().from(documentsTable).where(eq(documentsTable.requestId, id)).orderBy(asc(documentsTable.createdAt)),
+    db.select().from(messagesTable).where(eq(messagesTable.requestId, id)).orderBy(asc(messagesTable.createdAt)),
+    db.select().from(reportsTable).where(eq(reportsTable.vettingRequestId, id)),
+  ]);
+
+  const events: Array<{ type: string; title: string; detail: string | null; at: string }> = [];
+
+  events.push({ type: "submitted", title: "Request submitted", detail: `Worker: ${vr.workerName} · ${vr.workerRole}`, at: vr.createdAt.toISOString() });
+
+  if (vr.mpesaRef) {
+    const firstStep = steps[0];
+    events.push({
+      type: "payment_confirmed",
+      title: "Payment confirmed",
+      detail: `M-Pesa Ref: ${vr.mpesaRef}`,
+      at: (firstStep?.createdAt ?? vr.updatedAt).toISOString(),
+    });
+  }
+
+  for (const step of steps) {
+    if (step.completedAt) {
+      events.push({
+        type: "step_completed",
+        title: `${step.stepName} completed`,
+        detail: step.notes ? step.notes.slice(0, 100) : null,
+        at: step.completedAt.toISOString(),
+      });
+    }
+  }
+
+  for (const doc of docs) {
+    events.push({
+      type: "document_uploaded",
+      title: doc.uploaderRole === "employer" ? "Document uploaded by you" : "Document added by KenyaVet",
+      detail: `${doc.label ? doc.label + ": " : ""}${doc.fileName}`,
+      at: doc.createdAt.toISOString(),
+    });
+  }
+
+  for (const msg of msgs) {
+    events.push({
+      type: "message",
+      title: msg.role === "employer" ? "You sent a message" : `Message from ${msg.senderName}`,
+      detail: msg.body.length > 90 ? msg.body.slice(0, 90) + "…" : msg.body,
+      at: msg.createdAt.toISOString(),
+    });
+  }
+
+  for (const report of reports) {
+    events.push({
+      type: "report_published",
+      title: "Vetting report published",
+      detail: `Trust Score: ${report.overallTrustScore}/100`,
+      at: report.createdAt.toISOString(),
+    });
+  }
+
+  if (vr.status === "cancelled") {
+    events.push({ type: "cancelled", title: "Request cancelled", detail: null, at: vr.updatedAt.toISOString() });
+  }
+
+  events.sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
+  res.json({ events });
+});
 
 export default router;
