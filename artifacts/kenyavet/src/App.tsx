@@ -23,6 +23,7 @@ import Verify from "@/pages/verify";
 import Profile from "@/pages/profile";
 import Receipt from "@/pages/receipt";
 import Ops from "@/pages/ops";
+import Billing from "@/pages/billing";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient({
@@ -87,6 +88,9 @@ function Router() {
       </Route>
       <Route path="/ops">
         {() => <PrivateRoute component={Ops} />}
+      </Route>
+      <Route path="/billing">
+        {() => <PrivateRoute component={Billing} />}
       </Route>
 
       <Route component={NotFound} />

@@ -94,6 +94,17 @@ interface ActivityLogItem {
   userRole: string;
 }
 
+interface UserRecord {
+  id: number;
+  name: string;
+  email: string;
+  role: string;
+  phone: string | null;
+  neighbourhood: string | null;
+  createdAt: string;
+  requestCount: number;
+}
+
 function DetailDrawer({
   req,
   token,
@@ -297,11 +308,16 @@ export default function Admin() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [updatingId, setUpdatingId] = useState<number | null>(null);
   const [drawer, setDrawer] = useState<AdminRequest | null>(null);
-  const [activeTab, setActiveTab] = useState<"requests" | "analytics" | "reports" | "employers" | "activity">("requests");
+  const [activeTab, setActiveTab] = useState<"requests" | "analytics" | "reports" | "employers" | "activity" | "accounts">("requests");
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
   const [reports, setReports] = useState<AdminReport[]>([]);
   const [employers, setEmployers] = useState<EmployerRecord[]>([]);
   const [activityLog, setActivityLog] = useState<ActivityLogItem[]>([]);
+  const [usersList, setUsersList] = useState<UserRecord[]>([]);
+  const [createForm, setCreateForm] = useState({ name: "", email: "", password: "", role: "ops" });
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState("");
+  const [roleUpdating, setRoleUpdating] = useState<number | null>(null);
 
   async function load() {
     try {
@@ -343,11 +359,54 @@ export default function Admin() {
     } catch {}
   }
 
+  async function loadUsers() {
+    try {
+      const data = await apiFetch<{ users: UserRecord[] }>("/admin/users", { token });
+      setUsersList(data.users);
+    } catch {}
+  }
+
+  async function handleCreateUser(e: React.FormEvent) {
+    e.preventDefault();
+    setCreating(true);
+    setCreateError("");
+    try {
+      await apiFetch("/admin/users/create", {
+        method: "POST", token,
+        body: createForm,
+      });
+      setCreateForm({ name: "", email: "", password: "", role: "ops" });
+      toast({ title: "Account created", description: `${createForm.name} can now sign in as ${createForm.role}` });
+      loadUsers();
+    } catch (err: unknown) {
+      setCreateError(err instanceof Error ? err.message : "Failed to create account");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function handleRoleChange(userId: number, newRole: string) {
+    setRoleUpdating(userId);
+    try {
+      await apiFetch(`/admin/users/${userId}/role`, {
+        method: "PATCH", token,
+        body: { role: newRole },
+      });
+      toast({ title: "Role updated" });
+      loadUsers();
+    } catch (err: unknown) {
+      toast({ title: "Failed to update role", variant: "destructive" });
+    } finally {
+      setRoleUpdating(null);
+    }
+  }
+
   useEffect(() => { load(); }, [token]);
   useEffect(() => { if (activeTab === "analytics") loadAnalytics(); }, [activeTab, token]);
   useEffect(() => { if (activeTab === "reports") loadReports(); }, [activeTab, token]);
   useEffect(() => { if (activeTab === "employers") loadEmployers(); }, [activeTab, token]);
   useEffect(() => { if (activeTab === "activity") loadActivity(); }, [activeTab, token]);
+  useEffect(() => { if (activeTab === "accounts") loadUsers(); }, [activeTab, token]);
 
   async function updateStatus(id: number, status: string) {
     setUpdatingId(id);
@@ -406,7 +465,7 @@ export default function Admin() {
             <p className="text-muted-foreground text-sm mt-0.5">Manage all vetting requests and operations</p>
           </div>
           <div className="flex gap-2 flex-wrap">
-            {(["requests", "analytics", "reports", "employers", "activity"] as const).map(tab => (
+            {(["requests", "analytics", "reports", "employers", "activity", "accounts"] as const).map(tab => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -420,11 +479,13 @@ export default function Admin() {
                   : tab === "analytics" ? <BarChart3 className="w-3.5 h-3.5" />
                   : tab === "reports" ? <FileText className="w-3.5 h-3.5" />
                   : tab === "employers" ? <Users className="w-3.5 h-3.5" />
+                  : tab === "accounts" ? <Shield className="w-3.5 h-3.5" />
                   : <Bell className="w-3.5 h-3.5" />}
                 {tab === "requests" ? "Requests"
                   : tab === "analytics" ? "Analytics"
                   : tab === "reports" ? "Reports"
                   : tab === "employers" ? "Employers"
+                  : tab === "accounts" ? "Accounts"
                   : "Activity"}
               </button>
             ))}
@@ -929,6 +990,138 @@ export default function Admin() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Accounts tab */}
+        {activeTab === "accounts" && (
+          <div className="space-y-6">
+            {/* Create account */}
+            <div className="bg-card rounded-xl border border-card-border p-6">
+              <h3 className="font-semibold text-foreground mb-1 flex items-center gap-2">
+                <Shield className="w-4 h-4 text-primary" /> Create New Account
+              </h3>
+              <p className="text-xs text-muted-foreground mb-5">Add an ops or admin team member. Only admins can create accounts.</p>
+              {createError && (
+                <div className="bg-red-50 text-red-700 text-sm px-4 py-2.5 rounded-lg border border-red-100 mb-4">{createError}</div>
+              )}
+              <form onSubmit={handleCreateUser} className="grid sm:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">Full Name</label>
+                  <Input
+                    placeholder="e.g. Grace Wanjiku"
+                    value={createForm.name}
+                    onChange={e => setCreateForm(f => ({ ...f, name: e.target.value }))}
+                    required
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">Email Address</label>
+                  <Input
+                    type="email"
+                    placeholder="grace@kenyavet.co.ke"
+                    value={createForm.email}
+                    onChange={e => setCreateForm(f => ({ ...f, email: e.target.value }))}
+                    required
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">Password</label>
+                  <Input
+                    type="password"
+                    placeholder="At least 8 characters"
+                    value={createForm.password}
+                    onChange={e => setCreateForm(f => ({ ...f, password: e.target.value }))}
+                    required
+                    minLength={8}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">Role</label>
+                  <Select value={createForm.role} onValueChange={v => setCreateForm(f => ({ ...f, role: v }))}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ops">Ops (vetting agent)</SelectItem>
+                      <SelectItem value="admin">Admin (full access)</SelectItem>
+                      <SelectItem value="employer">Employer (client)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="sm:col-span-2 flex justify-end">
+                  <Button type="submit" disabled={creating} className="gap-2">
+                    {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Shield className="w-4 h-4" />}
+                    {creating ? "Creating…" : "Create Account"}
+                  </Button>
+                </div>
+              </form>
+            </div>
+
+            {/* Users list */}
+            <div className="bg-card rounded-xl border border-card-border overflow-hidden">
+              <div className="px-6 py-4 border-b border-border flex items-center justify-between">
+                <h3 className="font-semibold text-foreground flex items-center gap-2">
+                  <Users className="w-4 h-4 text-muted-foreground" /> All Users
+                </h3>
+                <span className="text-xs text-muted-foreground">{usersList.length} accounts</span>
+              </div>
+              {usersList.length === 0 ? (
+                <div className="py-12 text-center text-muted-foreground text-sm">Loading accounts…</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-muted/30">
+                        <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">User</th>
+                        <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground hidden sm:table-cell">Joined</th>
+                        <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground hidden md:table-cell">Requests</th>
+                        <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Role</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {usersList.map(u => (
+                        <tr key={u.id} className="hover:bg-muted/20 transition-colors">
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                                <span className="text-primary text-xs font-bold">{u.name.charAt(0)}</span>
+                              </div>
+                              <div>
+                                <p className="font-medium text-foreground">{u.name}</p>
+                                <p className="text-xs text-muted-foreground">{u.email}</p>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 hidden sm:table-cell text-xs text-muted-foreground">
+                            {formatDate(u.createdAt)}
+                          </td>
+                          <td className="px-4 py-3 hidden md:table-cell text-sm text-foreground">
+                            {u.requestCount}
+                          </td>
+                          <td className="px-4 py-3">
+                            <Select
+                              value={u.role}
+                              onValueChange={v => handleRoleChange(u.id, v)}
+                              disabled={roleUpdating === u.id}
+                            >
+                              <SelectTrigger className="h-7 text-xs w-32">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="employer">Employer</SelectItem>
+                                <SelectItem value="ops">Ops</SelectItem>
+                                <SelectItem value="admin">Admin</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

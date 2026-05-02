@@ -6,7 +6,7 @@ import { apiFetch } from "@/lib/api";
 import { formatDate, formatKsh, getStatusColor, getStatusLabel, getTrustScoreBg } from "@/lib/utils";
 import {
   ClipboardList, Users, CheckCircle, TrendingUp, Plus, ArrowRight,
-  CreditCard, FileText, Shield, Bell, Zap,
+  CreditCard, FileText, Shield, Bell, Zap, BarChart2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -36,6 +36,12 @@ interface ActivityItem {
   workerName: string | null;
   linkId: number | null;
   createdAt: string;
+}
+
+interface WeekDay {
+  label: string;
+  date: string;
+  count: number;
 }
 
 function activityIcon(type: string) {
@@ -82,19 +88,22 @@ export default function Dashboard() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [recent, setRecent] = useState<RecentRequest[]>([]);
   const [activity, setActivity] = useState<ActivityItem[]>([]);
+  const [weekDays, setWeekDays] = useState<WeekDay[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
       try {
-        const [statsData, recentData, activityData] = await Promise.all([
+        const [statsData, recentData, activityData, weekData] = await Promise.all([
           apiFetch<DashboardStats>("/dashboard/stats", { token }),
           apiFetch<RecentRequest[]>("/dashboard/recent-requests", { token }),
           apiFetch<ActivityItem[]>("/dashboard/activity", { token }),
+          apiFetch<{ days: WeekDay[] }>("/dashboard/weekly-activity", { token }),
         ]);
         setStats(statsData);
         setRecent(recentData);
         setActivity(activityData);
+        setWeekDays(weekData.days);
       } catch {
       } finally {
         setLoading(false);
@@ -221,26 +230,71 @@ export default function Dashboard() {
           ))}
         </div>
 
-        {/* Completion rate bar */}
-        {!loading && stats && stats.totalRequests > 0 && (
-          <div className="bg-card rounded-xl border border-card-border p-5 mb-6">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <Zap className="w-4 h-4 text-amber-500" />
-                <span className="text-sm font-semibold text-foreground">Completion Rate</span>
+        {/* Completion rate + weekly chart row */}
+        {!loading && stats && (
+          <div className="grid lg:grid-cols-2 gap-4 mb-6">
+            {/* Completion rate */}
+            {stats.totalRequests > 0 && (
+              <div className="bg-card rounded-xl border border-card-border p-5">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <Zap className="w-4 h-4 text-amber-500" />
+                    <span className="text-sm font-semibold text-foreground">Completion Rate</span>
+                  </div>
+                  <span className="text-sm font-bold text-foreground">{completionRate}%</span>
+                </div>
+                <div className="h-2 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full transition-all duration-700"
+                    style={{ width: `${completionRate}%` }}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground mt-2">
+                  {stats.completed} of {stats.totalRequests} vetting request{stats.totalRequests !== 1 ? "s" : ""} completed
+                  {stats.inProgress > 0 && ` · ${stats.inProgress} currently in progress`}
+                </p>
               </div>
-              <span className="text-sm font-bold text-foreground">{completionRate}%</span>
-            </div>
-            <div className="h-2 bg-muted rounded-full overflow-hidden">
-              <div
-                className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full transition-all duration-700"
-                style={{ width: `${completionRate}%` }}
-              />
-            </div>
-            <p className="text-xs text-muted-foreground mt-2">
-              {stats.completed} of {stats.totalRequests} vetting request{stats.totalRequests !== 1 ? "s" : ""} completed
-              {stats.inProgress > 0 && ` · ${stats.inProgress} currently in progress`}
-            </p>
+            )}
+
+            {/* 7-day activity chart */}
+            {weekDays.length > 0 && (
+              <div className={`bg-card rounded-xl border border-card-border p-5 ${stats.totalRequests === 0 ? "lg:col-span-2" : ""}`}>
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <BarChart2 className="w-4 h-4 text-primary" />
+                    <span className="text-sm font-semibold text-foreground">This Week</span>
+                  </div>
+                  <span className="text-xs text-muted-foreground">
+                    {weekDays.reduce((s, d) => s + d.count, 0)} request{weekDays.reduce((s, d) => s + d.count, 0) !== 1 ? "s" : ""} submitted
+                  </span>
+                </div>
+                {(() => {
+                  const maxCount = Math.max(...weekDays.map(d => d.count), 1);
+                  const today = new Date().toISOString().split("T")[0];
+                  return (
+                    <div className="flex items-end justify-between gap-1 h-16">
+                      {weekDays.map(day => {
+                        const pct = (day.count / maxCount) * 100;
+                        const isToday = day.date === today;
+                        return (
+                          <div key={day.date} className="flex flex-col items-center gap-1 flex-1">
+                            <div className="w-full flex items-end justify-center" style={{ height: 48 }}>
+                              <div
+                                className={`w-full rounded-t-sm transition-all duration-500 ${isToday ? "bg-primary" : "bg-primary/25"}`}
+                                style={{ height: day.count === 0 ? 3 : `${Math.max(pct, 8)}%` }}
+                              />
+                            </div>
+                            <span className={`text-[10px] font-medium ${isToday ? "text-primary" : "text-muted-foreground"}`}>
+                              {day.label}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
           </div>
         )}
 

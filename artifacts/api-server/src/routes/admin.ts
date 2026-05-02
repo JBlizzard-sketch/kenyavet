@@ -676,4 +676,69 @@ router.get("/ops/analytics", requireAuth, requireRole("admin", "ops"), async (_r
   });
 });
 
+router.get("/admin/users", requireAuth, requireRole("admin", "ops"), async (req: AuthRequest, res): Promise<void> => {
+  const rows = await db
+    .select({ u: usersTable, reqCount: count(vettingRequestsTable.id) })
+    .from(usersTable)
+    .leftJoin(vettingRequestsTable, eq(vettingRequestsTable.employerId, usersTable.id))
+    .groupBy(usersTable.id)
+    .orderBy(desc(usersTable.createdAt));
+
+  res.json({
+    users: rows.map(r => ({
+      id: r.u.id,
+      name: r.u.name,
+      email: r.u.email,
+      role: r.u.role,
+      phone: r.u.phone ?? null,
+      neighbourhood: r.u.neighbourhood ?? null,
+      createdAt: r.u.createdAt.toISOString(),
+      requestCount: Number(r.reqCount),
+    })),
+  });
+});
+
+router.post("/admin/users/create", requireAuth, requireRole("admin"), async (req: AuthRequest, res): Promise<void> => {
+  const { name, email, password, role } = req.body as { name: string; email: string; password: string; role: string };
+  if (!name || !email || !password || !role) {
+    res.status(400).json({ message: "name, email, password, role are required" }); return;
+  }
+  if (!["ops", "admin", "employer"].includes(role)) {
+    res.status(400).json({ message: "Invalid role" }); return;
+  }
+  if (password.length < 8) {
+    res.status(400).json({ message: "Password must be at least 8 characters" }); return;
+  }
+  const existing = await db.select({ id: usersTable.id }).from(usersTable)
+    .where(eq(usersTable.email, email.toLowerCase().trim()));
+  if (existing.length > 0) {
+    res.status(409).json({ message: "Email already in use" }); return;
+  }
+  const bcrypt = await import("bcryptjs");
+  const passwordHash = await bcrypt.hash(password, 10);
+  const [user] = await db.insert(usersTable).values({
+    name: name.trim(),
+    email: email.toLowerCase().trim(),
+    passwordHash,
+    role,
+  }).returning();
+  res.json({ success: true, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
+});
+
+router.patch("/admin/users/:id/role", requireAuth, requireRole("admin"), async (req: AuthRequest, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ message: "Invalid ID" }); return; }
+  const { role } = req.body as { role: string };
+  if (!["ops", "admin", "employer"].includes(role)) {
+    res.status(400).json({ message: "Invalid role" }); return;
+  }
+  if (id === req.userId) {
+    res.status(400).json({ message: "Cannot change your own role" }); return;
+  }
+  const [user] = await db.update(usersTable).set({ role })
+    .where(eq(usersTable.id, id)).returning();
+  if (!user) { res.status(404).json({ message: "User not found" }); return; }
+  res.json({ success: true, user: { id: user.id, name: user.name, role: user.role } });
+});
+
 export default router;

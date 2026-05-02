@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, vettingRequestsTable, vettingPackagesTable, staffRecordsTable, activityItemsTable, reportsTable } from "@workspace/db";
-import { eq, and, count, desc, isNull, lte } from "drizzle-orm";
+import { eq, and, count, desc, isNull, lte, isNotNull } from "drizzle-orm";
 import { requireAuth, type AuthRequest } from "../lib/auth-middleware";
 
 const router: IRouter = Router();
@@ -81,6 +81,62 @@ router.post("/notifications/mark-all-read", requireAuth, async (req: AuthRequest
       isNull(activityItemsTable.readAt),
     ));
   res.json({ success: true });
+});
+
+router.get("/billing/history", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  const uid = req.userId!;
+  const rows = await db
+    .select({ vr: vettingRequestsTable, pkg: vettingPackagesTable })
+    .from(vettingRequestsTable)
+    .leftJoin(vettingPackagesTable, eq(vettingRequestsTable.packageId, vettingPackagesTable.id))
+    .where(and(
+      eq(vettingRequestsTable.employerId, uid),
+      isNotNull(vettingRequestsTable.mpesaRef),
+    ))
+    .orderBy(desc(vettingRequestsTable.updatedAt));
+
+  const totalSpend = rows.reduce((sum, r) => sum + (r.pkg?.priceKsh ?? 0), 0);
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const last30Spend = rows
+    .filter(r => r.vr.updatedAt > thirtyDaysAgo)
+    .reduce((sum, r) => sum + (r.pkg?.priceKsh ?? 0), 0);
+
+  res.json({
+    totalSpend,
+    last30DaysSpend: last30Spend,
+    transactionCount: rows.length,
+    transactions: rows.map(r => ({
+      id: r.vr.id,
+      workerName: r.vr.workerName,
+      workerRole: r.vr.workerRole,
+      packageName: r.pkg?.name ?? "",
+      packageSlug: r.pkg?.slug ?? "",
+      priceKsh: r.pkg?.priceKsh ?? 0,
+      mpesaRef: r.vr.mpesaRef ?? "",
+      paidAt: r.vr.updatedAt.toISOString(),
+      status: r.vr.status,
+    })),
+  });
+});
+
+router.get("/dashboard/weekly-activity", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  const uid = req.userId!;
+  const rows = await db
+    .select({ createdAt: vettingRequestsTable.createdAt })
+    .from(vettingRequestsTable)
+    .where(eq(vettingRequestsTable.employerId, uid));
+
+  const days: { label: string; date: string; count: number }[] = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const dayStr = d.toISOString().split("T")[0];
+    const label = d.toLocaleDateString("en-US", { weekday: "short" });
+    const dayCount = rows.filter(r => r.createdAt.toISOString().split("T")[0] === dayStr).length;
+    days.push({ label, date: dayStr, count: dayCount });
+  }
+
+  res.json({ days });
 });
 
 export default router;
